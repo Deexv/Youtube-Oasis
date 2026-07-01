@@ -354,6 +354,8 @@ export async function processShort(input: ProcessShortInput): Promise<ProcessSho
 /**
  * Generate SRT from a video file using faster-whisper (Python).
  * Returns the path to the generated SRT file.
+ *
+ * On Windows, uses `python` instead of `python3` (which is the norm on Linux/macOS).
  */
 export async function generateSRTViaWhisper(
   videoPath: string,
@@ -362,17 +364,41 @@ export async function generateSRTViaWhisper(
 ): Promise<string> {
   const scriptPath = path.join(process.cwd(), "scripts", "generate-srt.py");
 
+  // Check if the script exists
+  if (!existsSync(scriptPath)) {
+    throw new Error(
+      `SRT generation script not found at: ${scriptPath}\n` +
+      `Run 'git pull' to get the latest code, then 'npm install' to ensure all files are present.`,
+    );
+  }
+
+  // On Windows, `python3` usually doesn't exist — use `python` instead
+  const isWindows = process.platform === "win32";
+  const pythonCmd = isWindows ? "python" : "python3";
+
   try {
     const { stderr } = await execFileAsync(
-      "python3",
+      pythonCmd,
       [scriptPath, videoPath, outputPath, model],
       {
         timeout: 600000, // 10 min timeout
         maxBuffer: 1024 * 1024 * 10,
+        windowsHide: true,
       },
     );
     return outputPath;
   } catch (e: any) {
-    throw new Error(`SRT generation failed: ${e?.message || "unknown error"}. ${e?.stderr || ""}`);
+    // Provide a helpful error message
+    let hint = "";
+    if (e?.code === "ENOENT") {
+      hint = `\nPython not found. Install Python 3 from https://python.org and make sure '${pythonCmd}' is in your PATH.`;
+    } else if (e?.stderr?.includes("No module named 'faster_whisper'")) {
+      hint = `\nfaster-whisper not installed. Run: pip install faster-whisper`;
+    } else if (e?.stderr?.includes("No module named")) {
+      hint = `\nMissing Python dependency. Run: pip install faster-whisper`;
+    }
+    throw new Error(
+      `SRT generation failed: ${e?.message || "unknown error"}.${hint}\n${e?.stderr || ""}`,
+    );
   }
 }

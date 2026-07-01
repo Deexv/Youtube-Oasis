@@ -246,6 +246,63 @@ Self-host on a $5 VPS. SQLite means no database server. Dynamic SDK imports keep
 
 ---
 
+## Troubleshooting (Windows)
+
+### `EPERM: operation not permitted, rmdir` during `npm install`
+
+A file in `node_modules` is locked by another process. Fix:
+
+```powershell
+# 1. Kill any node processes
+taskkill /f /im node.exe
+
+# 2. Close VS Code completely (it locks files in node_modules)
+
+# 3. Delete node_modules using rimraf (Windows rmdir is flaky with deep trees)
+npx rimraf node_modules package-lock.json
+
+# 4. Reinstall
+npm install
+```
+
+If `npx rimraf` fails too, open a **Command Prompt as Administrator** and run `rmdir /s /q node_modules`.
+
+### `ECONNRESET` on `@prisma/engines` postinstall
+
+The Prisma engine binary download was interrupted. This is a network issue — retry:
+
+```powershell
+# Option A: just retry
+npm install
+
+# Option B: use the Prisma binary mirror (more reliable)
+set PRISMA_ENGINES_MIRROR=https://binaries.prisma.sh
+npm install
+
+# Option C: if behind a corporate proxy
+set HTTPS_PROXY=http://your-proxy:port
+npm install
+```
+
+### `Prisma Client not found` after pulling
+
+The `predev` hook should handle this automatically, but if it doesn't:
+
+```powershell
+npm run db:generate
+npm run dev
+```
+
+### Port 3000 already in use
+
+```powershell
+# Find and kill the process using port 3000
+netstat -ano | findstr :3000
+taskkill /f /pid <PID>
+```
+
+---
+
 ## FAQ
 
 **Does this violate YouTube's Terms of Service?**

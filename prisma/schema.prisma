@@ -1,7 +1,10 @@
 // YouTube Scheduler Prisma schema
 
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  // Pre-declare binary targets so the Prisma engine download doesn't fail
+  // on Windows/Linux/macOS CI or when developing across platforms.
+  binaryTargets   = ["native", "windows", "linux-arm64-openssl-1.1.x", "linux-arm64-openssl-3.0.x"]
 }
 
 datasource db {

@@ -39,7 +39,7 @@ The transcript below includes timestamps in [HH:MM:SS,mmm --> HH:MM:SS,mmm] form
 
 Return STRICT JSON: {"moments": [{"beat": "hook|rising|conflict|comeback|tension|reveal", "title": string, "rationale": string, "sourceStart": number, "sourceEnd": number}]}
 - sourceStart/sourceEnd are seconds into the source video (use the timestamp data for accuracy).
-- Each moment should be 15-60 seconds long.
+- Each moment MUST be 20-40 seconds long. This is critical for YouTube Shorts.
 - Return ALL viable moments — 1, 5, 10, 15, or however many the video contains. Do not artificially cap the count.
 - Each moment should be a self-contained clip that makes sense on its own.
 - No prose outside the JSON.`;
@@ -187,8 +187,19 @@ function makeFallbackHeader(moment: DetectedMoment): string {
 function normalizeMoment(m: any, totalDurationSec: number): DetectedMoment | null {
   if (!m || typeof m !== "object") return null;
   const beat = BEAT_ORDER.includes(m.beat) ? (m.beat as NarrativeBeat) : "hook";
-  const start = Math.max(0, Math.min(totalDurationSec, Number(m.sourceStart) || 0));
-  const end = Math.max(start + 5, Math.min(totalDurationSec, Number(m.sourceEnd) || start + 30));
+  let start = Math.max(0, Math.min(totalDurationSec, Number(m.sourceStart) || 0));
+  let end = Math.max(start + 5, Math.min(totalDurationSec, Number(m.sourceEnd) || start + 30));
+
+  // Enforce 20-40 second shorts
+  const dur = end - start;
+  if (dur < 20) {
+    // Too short — extend to 20 seconds
+    end = Math.min(totalDurationSec, start + 20);
+  } else if (dur > 40) {
+    // Too long — trim to 40 seconds
+    end = start + 40;
+  }
+
   return {
     beat,
     title: String(m.title || "Untitled moment").slice(0, 120),
@@ -199,14 +210,22 @@ function normalizeMoment(m: any, totalDurationSec: number): DetectedMoment | nul
 }
 
 function fallbackMoments(totalDurationSec: number): DetectedMoment[] {
-  const seg = Math.max(15, Math.floor(totalDurationSec / 6));
-  return BEAT_ORDER.map((beat, i) => ({
-    beat,
-    title: `Segment ${i + 1} — ${BEAT_LABELS[beat]}`,
-    rationale: `Auto-segmented slice covering the ${BEAT_LABELS[beat].toLowerCase()} arc.`,
-    sourceStart: i * seg,
-    sourceEnd: Math.min(totalDurationSec, (i + 1) * seg),
-  }));
+  // Fallback: 30-second shorts spread across the video
+  const shortDur = 30; // 30 seconds each (within the 20-40 range)
+  const count = Math.min(6, Math.max(1, Math.floor(totalDurationSec / 60)));
+  const spacing = Math.floor((totalDurationSec - shortDur) / Math.max(1, count - 1));
+  return Array.from({ length: count }, (_, i) => {
+    const beat = BEAT_ORDER[i % BEAT_ORDER.length];
+    const start = i * spacing;
+    const end = Math.min(totalDurationSec, start + shortDur);
+    return {
+      beat,
+      title: `Segment ${i + 1} — ${BEAT_LABELS[beat]}`,
+      rationale: `Auto-segmented slice covering the ${BEAT_LABELS[beat].toLowerCase()} arc.`,
+      sourceStart: start,
+      sourceEnd: end,
+    };
+  });
 }
 
 function extractJson(content: string): string {

@@ -324,19 +324,22 @@ export async function processShort(input: ProcessShortInput): Promise<ProcessSho
   const filterComplex = filters.join(",");
 
   // Build the FFmpeg command
+  // -ss before -i = fast seeking (doesn't decode from start)
+  // -t = duration (more reliable than -to with seeking)
   const args = [
-    "-y", // overwrite output
-    "-ss", String(startSec), // seek to start
-    "-to", String(endSec), // end at
-    "-i", inputPath, // input
+    "-y",
+    "-ss", String(startSec),     // fast seek to start (before input)
+    "-i", inputPath,             // input
+    "-t", String(duration),      // take only N seconds
     "-vf", filterComplex,
     "-c:v", "libx264",
-    "-preset", "ultrafast", // fastest encoding — shorts are short clips
-    "-crf", "28", // slightly lower quality but much faster
+    "-preset", "ultrafast",      // fastest x264 preset
+    "-crf", "30",                // lower quality = faster (shorts are short)
+    "-pix_fmt", "yuv420p",
     "-c:a", "aac",
-    "-b:a", "128k",
+    "-b:a", "96k",               // lower audio bitrate (still fine for speech)
+    "-ac", "1",                  // mono (speech doesn't need stereo)
     "-movflags", "+faststart",
-    "-t", String(duration),
     outputPath,
   ];
 

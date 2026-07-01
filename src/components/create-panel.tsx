@@ -150,6 +150,8 @@ function ShortsWizard() {
   const [srtMessage, setSrtMessage] = useState("");
   const [steps, setSteps] = useState<Step[]>([]);
   const [scheduling, setScheduling] = useState(false);
+  const [shortsProgress, setShortsProgress] = useState(0);
+  const [shortsMessage, setShortsMessage] = useState("");
 
   // Selected IDs as array for localStorage persistence
   const [selectedArray, setSelectedArray] = useLocalStorage<string[]>("shorts:selected", []);
@@ -253,6 +255,8 @@ function ShortsWizard() {
     setBusy(true);
     setGeneratedShorts([]);
     setSelectedIds(new Set());
+    setShortsProgress(0);
+    setShortsMessage("Starting…");
 
     const subtitleLabel = subtitlesEnabled
       ? `Cut + convert + burn ${subtitleStyle} subtitles`
@@ -268,15 +272,7 @@ function ShortsWizard() {
     const t = toast.loading("Analyzing video with LLM…");
 
     try {
-      // Simulated progress while the API runs
-      setTimeout(() => {
-        stepList[1].status = "done";
-        stepList[2].status = "active";
-        setSteps([...stepList]);
-        toast.loading(subtitleLabel + "…", { id: t });
-      }, 2000);
-
-      const r = await fetch("/api/shorts/generate-v2", {
+      const response = await fetch("/api/shorts/generate-stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -286,23 +282,68 @@ function ShortsWizard() {
           subtitlesEnabled,
         }),
       });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d.error || "Failed");
 
-      stepList.forEach((s) => (s.status = "done"));
-      setSteps([...stepList]);
-
-      setGeneratedShorts(d.created);
-      // Select all by default
-      setSelectedIds(new Set(d.created.map((s: GeneratedShort) => s.id)));
-
-      // Show the LLM provider + any warning
-      const providerLabel = d.llmProvider === "fallback" ? "fallback splitter" : d.llmProvider;
-      const toastMsg = `Created ${d.created.length} shorts (${d.totalFound} moments found, ${d.totalProcessed} processed) · LLM: ${providerLabel}`;
-      if (d.llmWarning) {
-        toast.warning(d.llmWarning, { duration: 8000 });
+      if (!response.ok) {
+        const d = await response.json().catch(() => ({}));
+        throw new Error(d.error || `HTTP ${response.status}`);
       }
-      toast.success(toastMsg, { id: t });
+
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      if (!reader) throw new Error("No response stream");
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              setShortsProgress(data.progress);
+              setShortsMessage(data.message);
+
+              if (data.stage === "llm") {
+                toast.loading(data.message, { id: t });
+              } else if (data.stage === "llm_done") {
+                stepList[1].status = "done";
+                stepList[2].status = "active";
+                setSteps([...stepList]);
+                toast.loading(`${data.message}. ${subtitleLabel}…`, { id: t });
+              } else if (data.stage === "headers") {
+                toast.loading("Generating viral headers…", { id: t });
+              } else if (data.stage === "processing") {
+                toast.loading(data.message, { id: t });
+              } else if (data.stage === "done") {
+                stepList.forEach((s) => (s.status = "done"));
+                setSteps([...stepList]);
+
+                setGeneratedShorts(data.created);
+                setSelectedIds(new Set(data.created.map((s: GeneratedShort) => s.id)));
+
+                const providerLabel = data.llmProvider === "fallback" ? "fallback splitter" : data.llmProvider;
+                const toastMsg = `Created ${data.created.length} shorts (${data.totalFound} moments, ${data.totalProcessed} processed) · LLM: ${providerLabel}`;
+                if (data.llmWarning) {
+                  toast.warning(data.llmWarning, { duration: 8000 });
+                }
+                toast.success(toastMsg, { id: t });
+              } else if (data.stage === "error") {
+                throw new Error(data.message);
+              }
+            } catch (e: any) {
+              if (e.message && !e.message.includes("JSON")) {
+                throw e;
+              }
+            }
+          }
+        }
+      }
       setSteps([]);
       bump();
     } catch (e: any) {
@@ -312,6 +353,8 @@ function ShortsWizard() {
       setSteps([...stepList]);
     } finally {
       setBusy(false);
+      setShortsProgress(0);
+      setShortsMessage("");
     }
   }
 
@@ -607,6 +650,20 @@ function ShortsWizard() {
 
             {/* Generate button */}
             {steps.length > 0 && <StepProgress steps={steps} />}
+
+            {/* Shorts progress bar */}
+            {busy && shortsProgress > 0 && (
+              <div className="space-y-2 rounded-md border bg-muted/30 p-3">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="flex items-center gap-2 font-medium">
+                    <LoaderIcon className="size-4 animate-spin" />
+                    {shortsMessage || "Working…"}
+                  </span>
+                  <span className="tabular-nums text-muted-foreground">{shortsProgress}%</span>
+                </div>
+                <Progress value={shortsProgress} className="h-2" />
+              </div>
+            )}
 
             <Button
               onClick={generate}

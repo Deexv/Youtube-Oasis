@@ -167,19 +167,39 @@ async function callProvider(
 }
 
 async function callZai(input: ChatJsonInput): Promise<{ content: string; model: string }> {
-  const { default: ZAI } = await import("z-ai-web-dev-sdk");
-  const zai = await ZAI.create();
-  const res = await zai.chat.completions.create({
-    messages: [
-      { role: "system", content: input.system },
-      { role: "user", content: input.user },
-    ],
-    temperature: input.temperature ?? 0.7,
-    response_format: { type: "json_object" },
-  } as any);
-  const content = res?.choices?.[0]?.message?.content ?? "";
+  const apiKey = process.env.ZAI_API_KEY;
+  if (!apiKey) throw new Error("ZAI_API_KEY not set in .env");
+
+  const model = getModel("zai");
+
+  // Direct API call to Z.AI (OpenAI-compatible endpoint)
+  // This bypasses the z-ai-web-dev-sdk which requires a .z-ai-config file
+  const res = await fetch("https://api.z.ai/api/paas/v4/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model,
+      messages: [
+        { role: "system", content: input.system },
+        { role: "user", content: input.user },
+      ],
+      temperature: input.temperature ?? 0.7,
+      response_format: { type: "json_object" },
+    }),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text().catch(() => "unknown");
+    throw new Error(`Z.AI API error ${res.status}: ${errText.slice(0, 200)}`);
+  }
+
+  const data = await res.json();
+  const content = data?.choices?.[0]?.message?.content ?? "";
   if (!content) throw new Error("Z.AI returned empty content");
-  return { content, model: getModel("zai") };
+  return { content, model };
 }
 
 async function callGroq(input: ChatJsonInput): Promise<{ content: string; model: string }> {

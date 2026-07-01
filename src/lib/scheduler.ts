@@ -18,6 +18,7 @@ export type SchedulingSettings = {
   shortsMinSpacingMinutes: number; // default 120 (2 hours)
   longFormWindowStart: string; // "09:00"
   longFormWindowEnd: string; // "17:00"
+  uploadLimitMb: number; // default 2048 (2 GB)
 };
 
 export const DEFAULT_SETTINGS: SchedulingSettings = {
@@ -26,6 +27,7 @@ export const DEFAULT_SETTINGS: SchedulingSettings = {
   shortsMinSpacingMinutes: 120,
   longFormWindowStart: "09:00",
   longFormWindowEnd: "17:00",
+  uploadLimitMb: Number(process.env.UPLOAD_MAX_SIZE_MB) || 2048,
 };
 
 const SETTINGS_KEY = "scheduling";

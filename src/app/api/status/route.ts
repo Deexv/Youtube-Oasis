@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { isMockMode, isYouTubeConfigured } from "@/lib/youtube";
 import { getProviderStatus } from "@/lib/zai";
+import { getProviderModels } from "@/lib/llm";
 
 export async function GET() {
   const configured = isYouTubeConfigured();
@@ -10,5 +11,6 @@ export async function GET() {
     youtubeConfigured: configured,
     youtubeLabel: mock ? "Mock" : configured ? "Live" : "Not configured",
     llm: getProviderStatus(),
+    llmModels: getProviderModels(),
   });
 }

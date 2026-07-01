@@ -85,10 +85,11 @@ export async function generateShortsFromLongForm(
         scheduledTime,
         status,
         subtitleStyle: "pop",
+        accountId: longForm.accountId || null,
       },
     });
 
-    // Native YouTube schedule call (mocked in sandbox)
+    // Native YouTube schedule call — uses the long-form's account
     if (autoSchedule && scheduledTime) {
       try {
         const yt = await scheduleOnYouTube({
@@ -99,6 +100,7 @@ export async function generateShortsFromLongForm(
           isShort: true,
           tags: [m.beat, "shorts", "auto-generated"],
           categoryId: 24,
+          accountId: longForm.accountId || null,
         });
         await db.short.update({
           where: { id: row.id },
@@ -141,6 +143,8 @@ export type ScheduledPost = {
   scheduledTime: string;
   status: string;
   youtubeId?: string;
+  accountId?: string | null;
+  account?: { id: string; displayName: string; color: string; avatarUrl?: string | null } | null;
 };
 
 export async function getUpcomingSchedule(limit = 20): Promise<ScheduledPost[]> {
@@ -153,6 +157,9 @@ export async function getUpcomingSchedule(limit = 20): Promise<ScheduledPost[]> 
       },
       orderBy: { scheduledTime: "asc" },
       take: limit,
+      include: {
+        account: { select: { id: true, displayName: true, color: true, avatarUrl: true } },
+      },
     }),
     db.short.findMany({
       where: {
@@ -161,6 +168,9 @@ export async function getUpcomingSchedule(limit = 20): Promise<ScheduledPost[]> 
       },
       orderBy: { scheduledTime: "asc" },
       take: limit,
+      include: {
+        account: { select: { id: true, displayName: true, color: true, avatarUrl: true } },
+      },
     }),
   ]);
 
@@ -172,6 +182,8 @@ export async function getUpcomingSchedule(limit = 20): Promise<ScheduledPost[]> 
       scheduledTime: l.scheduledTime!,
       status: l.status,
       youtubeId: l.youtubeId ?? undefined,
+      accountId: l.accountId,
+      account: l.account,
     })),
     ...shorts.map((s) => ({
       id: s.id,
@@ -182,6 +194,8 @@ export async function getUpcomingSchedule(limit = 20): Promise<ScheduledPost[]> 
       scheduledTime: s.scheduledTime!,
       status: s.status,
       youtubeId: s.youtubeId ?? undefined,
+      accountId: s.accountId,
+      account: s.account,
     })),
   ];
   return merged.sort((a, b) => a.scheduledTime.localeCompare(b.scheduledTime)).slice(0, limit);

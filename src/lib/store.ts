@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-export type DashboardTab = "overview" | "long-form" | "shorts" | "upcoming" | "settings";
+export type DashboardTab = "overview" | "create" | "long-form" | "shorts" | "upcoming" | "settings";
 
 type DashboardState = {
   tab: DashboardTab;

@@ -13,6 +13,9 @@ db/
 *.db
 *.db-journal
 
+# Uploaded video files (local only — never commit)
+uploads/
+
 # Environment variables (NEVER commit — contains API keys + OAuth tokens)
 .env
 .env.local
@@ -55,3 +58,6 @@ skills/
 examples/
 mini-services/
 next-env.d.ts
+
+# Sandbox helper scripts
+scripts/

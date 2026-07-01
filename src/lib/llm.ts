@@ -16,22 +16,47 @@
  * doesn't care which one answered.
  */
 
-import ZAI from "z-ai-web-dev-sdk";
-import OpenAI from "openai";
-import { GoogleGenAI } from "@google/genai";
-import Anthropic from "@anthropic-ai/sdk";
+// Heavy SDK imports are done dynamically inside call* functions so the
+// server doesn't load all 4 SDKs at startup (saves ~500MB of memory).
 
 export {
   PROVIDER_ORDER,
   PROVIDER_LABELS,
-  PROVIDER_MODELS,
+  PROVIDER_DEFAULT_MODELS,
+  PROVIDER_ENV_KEYS,
   type ProviderName,
 } from "@/lib/llm-shared";
 import {
   PROVIDER_ORDER,
-  PROVIDER_MODELS,
+  PROVIDER_DEFAULT_MODELS,
+  PROVIDER_ENV_KEYS,
   type ProviderName,
 } from "@/lib/llm-shared";
+
+/**
+ * Returns the configured model for a provider, reading from env first and
+ * falling back to the provider default. Allows users to swap models
+ * (e.g. GROQ_MODEL=llama-3.1-8b-instant) without code changes.
+ */
+function getModel(provider: ProviderName): string {
+  const envKey = PROVIDER_ENV_KEYS[provider].model;
+  return process.env[envKey] || PROVIDER_DEFAULT_MODELS[provider];
+}
+
+/**
+ * Returns a snapshot of all provider → model pairs (for the status API
+ * and Settings UI). Reads env at call time so it reflects current config.
+ */
+export function getProviderModels(): Record<ProviderName, { model: string; configured: boolean }> {
+  const result = {} as Record<ProviderName, { model: string; configured: boolean }>;
+  for (const p of PROVIDER_ORDER) {
+    result[p] = {
+      model: getModel(p),
+      configured: Boolean(process.env[PROVIDER_ENV_KEYS[p].apiKey]),
+    };
+  }
+  return result;
+}
 
 export type ChatJsonResult = {
   content: string;
@@ -142,6 +167,7 @@ async function callProvider(
 }
 
 async function callZai(input: ChatJsonInput): Promise<{ content: string; model: string }> {
+  const { default: ZAI } = await import("z-ai-web-dev-sdk");
   const zai = await ZAI.create();
   const res = await zai.chat.completions.create({
     messages: [
@@ -153,16 +179,17 @@ async function callZai(input: ChatJsonInput): Promise<{ content: string; model: 
   } as any);
   const content = res?.choices?.[0]?.message?.content ?? "";
   if (!content) throw new Error("Z.AI returned empty content");
-  return { content, model: PROVIDER_MODELS.zai };
+  return { content, model: getModel("zai") };
 }
 
 async function callGroq(input: ChatJsonInput): Promise<{ content: string; model: string }> {
+  const { default: OpenAI } = await import("openai");
   const client = new OpenAI({
     apiKey: process.env.GROQ_API_KEY!,
     baseURL: "https://api.groq.com/openai/v1",
   });
   const res = await client.chat.completions.create({
-    model: PROVIDER_MODELS.groq,
+    model: getModel("groq"),
     messages: [
       { role: "system", content: input.system },
       { role: "user", content: input.user },
@@ -172,13 +199,14 @@ async function callGroq(input: ChatJsonInput): Promise<{ content: string; model:
   });
   const content = res.choices?.[0]?.message?.content ?? "";
   if (!content) throw new Error("Groq returned empty content");
-  return { content, model: PROVIDER_MODELS.groq };
+  return { content, model: getModel("groq") };
 }
 
 async function callGemini(input: ChatJsonInput): Promise<{ content: string; model: string }> {
+  const { GoogleGenAI } = await import("@google/genai");
   const client = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
   const res = await client.models.generateContent({
-    model: PROVIDER_MODELS.gemini,
+    model: getModel("gemini"),
     contents: input.user,
     config: {
       systemInstruction: input.system,
@@ -188,13 +216,14 @@ async function callGemini(input: ChatJsonInput): Promise<{ content: string; mode
   });
   const content = res.text ?? "";
   if (!content) throw new Error("Gemini returned empty content");
-  return { content, model: PROVIDER_MODELS.gemini };
+  return { content, model: getModel("gemini") };
 }
 
 async function callAnthropic(input: ChatJsonInput): Promise<{ content: string; model: string }> {
+  const { default: Anthropic } = await import("@anthropic-ai/sdk");
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
   const res = await client.messages.create({
-    model: PROVIDER_MODELS.anthropic,
+    model: getModel("anthropic"),
     max_tokens: 2048,
     system: input.system,
     messages: [{ role: "user", content: input.user }],
@@ -206,5 +235,5 @@ async function callAnthropic(input: ChatJsonInput): Promise<{ content: string; m
     .map((b: any) => b.text)
     .join("");
   if (!content) throw new Error("Anthropic returned empty content");
-  return { content, model: PROVIDER_MODELS.anthropic };
+  return { content, model: getModel("anthropic") };
 }

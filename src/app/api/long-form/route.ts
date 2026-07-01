@@ -10,15 +10,29 @@ import { scheduleOnYouTube } from "@/lib/youtube";
 export async function GET() {
   const items = await db.longFormVideo.findMany({
     orderBy: { createdAt: "desc" },
-    include: { _count: { select: { shorts: true } } },
+    include: {
+      _count: { select: { shorts: true } },
+      account: { select: { id: true, displayName: true, color: true, avatarUrl: true } },
+    },
   });
   return NextResponse.json({ items });
 }
 
 export async function POST(req: Request) {
   const body = await req.json();
-  const { title, description, filePath, duration, transcript, windowStart, windowEnd, scheduleNow } =
-    body || {};
+  const {
+    title,
+    description,
+    filePath,
+    fileSize,
+    mimeType,
+    duration,
+    transcript,
+    windowStart,
+    windowEnd,
+    scheduleNow,
+    accountId,
+  } = body || {};
 
   if (!title || !filePath) {
     return NextResponse.json({ error: "title and filePath are required" }, { status: 400 });
@@ -31,6 +45,7 @@ export async function POST(req: Request) {
   let scheduledTime: string | null = null;
   let status = "draft";
   let youtubeId: string | undefined;
+  let usedAccountId: string | undefined = accountId;
 
   if (scheduleNow) {
     const day = await findNextLongFormDay(new Date(), settings);
@@ -45,9 +60,11 @@ export async function POST(req: Request) {
         scheduledTime,
         tags: ["long-form"],
         categoryId: 22,
+        accountId: accountId || null,
       });
       youtubeId = yt.youtubeId;
-    } catch {
+      usedAccountId = yt.accountId;
+    } catch (e: any) {
       status = "failed";
     }
   }
@@ -57,6 +74,8 @@ export async function POST(req: Request) {
       title,
       description,
       filePath,
+      fileSize: Number(fileSize) || 0,
+      mimeType: mimeType || "video/mp4",
       duration: Number(duration) || 0,
       transcript,
       windowStart: wStart,
@@ -64,6 +83,10 @@ export async function POST(req: Request) {
       scheduledTime,
       status,
       youtubeId,
+      accountId: usedAccountId || null,
+    },
+    include: {
+      account: { select: { id: true, displayName: true, color: true, avatarUrl: true } },
     },
   });
 

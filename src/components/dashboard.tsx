@@ -12,6 +12,7 @@ import { LongFormPanel } from "@/components/long-form-panel";
 import { ShortsPanel } from "@/components/shorts-panel";
 import { UpcomingPanel } from "@/components/upcoming-panel";
 import { SettingsPanel } from "@/components/settings-panel";
+import { CreatePanel } from "@/components/create-panel";
 import { NewLongFormDialog } from "@/components/new-long-form-dialog";
 import {
   Tabs,
@@ -21,21 +22,25 @@ import {
 } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { useDashboardStore, type DashboardTab } from "@/lib/store";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 export function Dashboard() {
   const tab = useDashboardStore((s) => s.tab);
   const setTab = useDashboardStore((s) => s.setTab);
+  // Render charts only after client-side mount to avoid hydration mismatches
+  // caused by browser extensions (e.g. DarkReader) that mutate the DOM.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
   // Sync tab with URL hash so sidebar links work
   useEffect(() => {
     const hash = window.location.hash.replace("#", "") as DashboardTab;
-    if (["overview", "long-form", "shorts", "upcoming", "settings"].includes(hash)) {
+    if (["overview", "create", "long-form", "shorts", "upcoming", "settings"].includes(hash)) {
       setTab(hash);
     }
     const onHash = () => {
       const h = window.location.hash.replace("#", "") as DashboardTab;
-      if (["overview", "long-form", "shorts", "upcoming", "settings"].includes(h)) {
+      if (["overview", "create", "long-form", "shorts", "upcoming", "settings"].includes(h)) {
         setTab(h);
       }
     };
@@ -63,6 +68,7 @@ export function Dashboard() {
       <Tabs value={tab} onValueChange={(v) => changeTab(v as DashboardTab)}>
         <TabsList>
           <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="create">Create</TabsTrigger>
           <TabsTrigger value="long-form">Long-form</TabsTrigger>
           <TabsTrigger value="shorts">Shorts</TabsTrigger>
           <TabsTrigger value="upcoming">Upcoming</TabsTrigger>
@@ -70,16 +76,28 @@ export function Dashboard() {
         </TabsList>
 
         <TabsContent value="overview" className="mt-4">
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <DashboardStats />
-            <ConversationVolumeChart />
-            <ChannelBreakdownChart />
-            <CsatResponsesChart />
-            <FirstReplyTimeChart />
-            <TeamOnDuty />
-            <RecentConversations />
-            <SupportActivity />
-          </div>
+          {mounted ? (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <DashboardStats />
+              <ConversationVolumeChart />
+              <ChannelBreakdownChart />
+              <CsatResponsesChart />
+              <FirstReplyTimeChart />
+              <TeamOnDuty />
+              <RecentConversations />
+              <SupportActivity />
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {[...Array(8)].map((_, i) => (
+                <div key={i} className="h-48 animate-pulse rounded-md bg-muted" />
+              ))}
+            </div>
+          )}
+        </TabsContent>
+
+        <TabsContent value="create" className="mt-4">
+          <CreatePanel />
         </TabsContent>
 
         <TabsContent value="long-form" className="mt-4">

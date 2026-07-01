@@ -14,6 +14,8 @@ model LongFormVideo {
   title         String
   description   String?
   filePath      String
+  fileSize      Int      @default(0) // bytes
+  mimeType      String   @default("video/mp4")
   duration      Int      @default(0) // seconds
   thumbnailUrl  String?
   // Scheduling window (HH:mm 24h)
@@ -26,6 +28,9 @@ model LongFormVideo {
   youtubeId     String?
   // Transcript used as input for shorts generation
   transcript    String?
+  // Which YouTube account to post to
+  accountId     String?
+  account       YouTubeAccount? @relation(fields: [accountId], references: [id], onDelete: SetNull)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -53,11 +58,36 @@ model Short {
   subtitleStyle String   @default("pop")
   longFormId    String
   longForm      LongFormVideo @relation(fields: [longFormId], references: [id], onDelete: Cascade)
+  // Which YouTube account to post to (inherits from long-form by default)
+  accountId     String?
+  account       YouTubeAccount? @relation(fields: [accountId], references: [id], onDelete: SetNull)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
   @@index([longFormId])
   @@index([scheduledTime])
+}
+
+model YouTubeAccount {
+  id            String   @id @default(cuid())
+  // Display name from YouTube channel
+  displayName   String
+  channelId     String?  @unique
+  // Avatar URL from YouTube
+  avatarUrl     String?
+  // OAuth tokens (encrypted at rest in a future revision; plain for v0.1)
+  refreshToken  String
+  accessToken   String?
+  tokenExpiresAt DateTime?
+  // Distinct color for the account selector (prevents cross-account mistakes)
+  color         String   @default("#ef4444")
+  // Whether this is the user's default account
+  isDefault     Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  longForms LongFormVideo[]
+  shorts    Short[]
 }
 
 // Simple key-value settings store for dashboard config

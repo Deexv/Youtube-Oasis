@@ -1,0 +1,14 @@
+onlyBuiltDependencies:
+  - "@prisma/client"
+  - "@prisma/engines"
+  - prisma
+  - sharp
+  - "@swc/core"
+  - es5-ext
+  - protobufjs
+  - unrs-resolver
+  - "@parcel/watcher"
+  - "@google/genai"
+
+# Relax minimum release age policy (sandbox env has a default that blocks fresh publishes)
+minimumReleaseAge: 0

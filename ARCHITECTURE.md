@@ -2,7 +2,10 @@
 
 Shorts Pilot is a single-user, self-hosted YouTube scheduler. It runs as a
 Next.js 16 app with an embedded SQLite database. All YouTube and LLM calls
-happen server-side.
+happen server-side. Package manager: **pnpm**.
+
+**v0.2 highlights**: multi-account YouTube OAuth, real file uploads, per-provider
+LLM model overrides, dynamic SDK imports for memory efficiency.
 
 ## High-level diagram
 
@@ -13,21 +16,27 @@ happen server-side.
 │  AppShell (sidebar + header)                                        │
 │    └─ Dashboard                                                     │
 │         ├─ Overview tab    (stats, charts, queue, upcoming)         │
-│         ├─ Long-form tab   (table + New long-form dialog)           │
-│         ├─ Shorts tab      (table with beat tags)                   │
+│         ├─ Create tab      (upload long-form + generate shorts)     │
+│         ├─ Long-form tab   (table + generate shorts)                │
+│         ├─ Shorts tab      (table with beat tags + account badge)   │
 │         ├─ Upcoming tab    (day-grouped timeline)                   │
-│         └─ Settings tab    (limits, window, providers, YouTube)     │
+│         └─ Settings tab    (limits, window, API keys, YouTube accts)│
 └──────────────────────────────┬──────────────────────────────────────┘
                                │ fetch /api/*
 ┌──────────────────────────────┴──────────────────────────────────────┐
 │                    Next.js API routes (server)                      │
 │                                                                     │
+│  /api/upload          POST (multipart file upload with progress)    │
 │  /api/long-form       GET (list) · POST (create + schedule)         │
 │  /api/shorts          GET (list)                                    │
 │  /api/shorts/generate POST (detect moments + generate + schedule)   │
 │  /api/schedule        GET (upcoming long+short merged)              │
-│  /api/settings        GET · POST (limits, window)                   │
-│  /api/status          GET (provider + YouTube status)               │
+│  /api/settings        GET · POST (limits, window, uploadLimitMb)    │
+│  /api/status          GET (provider models + YouTube status)        │
+│  /api/youtube/auth    GET (redirect to Google OAuth)                │
+│  /api/youtube/callback GET (OAuth code → store account)             │
+│  /api/youtube/accounts GET (list) · DELETE (disconnect)             │
+│  /api/youtube/accounts-default POST (set default account)           │
 │  /api/youtube/schedule POST (manual reschedule)                     │
 │  /api/seed            POST (demo data)                              │
 └──────────────────────────────┬──────────────────────────────────────┘
@@ -190,11 +199,27 @@ model Short {
   status        String   @default("draft")
   youtubeId     String?
   subtitleStyle String   @default("pop")
+  accountId     String?
+  account       YouTubeAccount? @relation(...)
+}
+
+model YouTubeAccount {
+  id            String   @id @default(cuid())
+  displayName   String
+  channelId     String?  @unique
+  avatarUrl     String?
+  refreshToken  String              // OAuth refresh token (stored in DB)
+  accessToken   String?
+  tokenExpiresAt DateTime?
+  color         String   @default("#ef4444")  // for the account selector
+  isDefault     Boolean  @default(false)
+  longForms     LongFormVideo[]
+  shorts        Short[]
 }
 
 model Setting {
   key   String @id          // "scheduling"
-  value String              // JSON blob
+  value String              // JSON blob (includes uploadLimitMb)
 }
 ```
 

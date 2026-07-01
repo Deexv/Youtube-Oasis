@@ -5,6 +5,22 @@ process is lightweight.
 
 ## Project conventions
 
+### Package manager
+
+This project uses **pnpm**. Don't use npm or bun — the lockfile is
+`pnpm-lock.yaml` and the build-script allowlist is in `pnpm-workspace.yaml`.
+
+```bash
+pnpm install
+pnpm run dev
+pnpm run lint
+pnpm run db:push
+```
+
+If you add a dependency with a postinstall script (e.g. a native binding),
+add it to `onlyBuiltDependencies` in `pnpm-workspace.yaml` so pnpm 10+
+allows it to run.
+
 ### Branch + commit
 
 - Branch from `main`. Name branches `feat/...`, `fix/...`, `docs/...`.

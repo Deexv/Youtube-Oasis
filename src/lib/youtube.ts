@@ -1,28 +1,20 @@
 /**
- * Real YouTube Data API v3 integration.
+ * Real YouTube Data API v3 integration with multi-account support.
  *
- * Uploads the video file via `videos.insert` with:
- *   status.privacyStatus = "private"
- *   status.publishAt    = scheduledTime   (RFC 3339)
- *   status.selfDeclaredMadeForKids = false
+ * Each YouTubeAccount in the DB holds its own OAuth refresh token. When
+ * scheduling a video, the caller passes an `accountId` — we look up the
+ * account, build an OAuth2 client with its tokens, and upload via
+ * `videos.insert` with `status.publishAt`.
  *
- * Auth uses an OAuth2 refresh-token flow — the user provides client_id,
- * client_secret and a long-lived refresh_token in .env. We exchange the
- * refresh token for an access_token on every call (Google access tokens
- * expire after 1 hour; the refresh token is valid indefinitely unless
- * revoked).
- *
- * If YOUTUBE_MOCK_MODE !== "false" we still support a mock path for local
- * development, but the DEFAULT is live mode. Set YOUTUBE_MOCK_MODE=true
- * explicitly to opt into mock.
- *
- * Docs:
- *   https://developers.google.com/youtube/v3/docs/videos/insert
- *   https://developers.google.com/youtube/v3/guides/auth/installed-apps
+ * The "Add account" flow lives in /api/youtube/auth and
+ * /api/youtube/callback — it does the OAuth dance and stores the refresh
+ * token + channel info automatically.
  */
 
-import { google } from "googleapis";
+// googleapis is imported dynamically inside functions to avoid loading
+// the heavy SDK at module evaluation time (saves ~300MB memory).
 import { Readable } from "stream";
+import { db } from "@/lib/db";
 
 export {
   youtubeWatchUrl,
@@ -37,27 +29,34 @@ export type YouTubeScheduleInput = {
   scheduledTime: string; // ISO
   thumbnailUrl?: string;
   tags?: string[];
-  categoryId?: number; // 22 = People & Blog, 24 = Entertainment, etc.
+  categoryId?: number;
   isShort?: boolean;
+  /** If omitted, uses the default account. */
+  accountId?: string | null;
 };
 
 export type YouTubeScheduleResult = {
   youtubeId: string;
   scheduledTime: string;
   mock: boolean;
+  accountId?: string;
 };
 
 export function isMockMode(): boolean {
   const v = process.env.YOUTUBE_MOCK_MODE;
-  // Default to LIVE mode (mock must be opted-in explicitly).
   return v === "true";
 }
 
 export function isYouTubeConfigured(): boolean {
   return Boolean(
-    process.env.YOUTUBE_CLIENT_ID &&
-      process.env.YOUTUBE_CLIENT_SECRET &&
-      process.env.YOUTUBE_REFRESH_TOKEN,
+    process.env.YOUTUBE_CLIENT_ID && process.env.YOUTUBE_CLIENT_SECRET,
+  );
+}
+
+export function getRedirectUri(): string {
+  return (
+    process.env.YOUTUBE_REDIRECT_URI ||
+    "http://localhost:3000/api/youtube/callback"
   );
 }
 
@@ -71,75 +70,243 @@ function fakeYoutubeId(): string {
 }
 
 function toRFC3339(iso: string): string {
-  // YouTube requires RFC 3339 with explicit timezone. ISO strings from
-  // Date.toISOString() are already RFC 3339 (Z suffix).
   return new Date(iso).toISOString();
 }
 
-function getOAuth2Client() {
-  const clientId = process.env.YOUTUBE_CLIENT_ID!;
-  const clientSecret = process.env.YOUTUBE_CLIENT_SECRET!;
-  const refreshToken = process.env.YOUTUBE_REFRESH_TOKEN!;
-  // Redirect URI must match the one used to obtain the refresh token.
-  // The Google installed-app flow uses "urn:ietf:wg:oauth:2.0:oob" or
-  // http://localhost. We use the standard OOB redirect.
+const SCOPES = [
+  "https://www.googleapis.com/auth/youtube.upload",
+  "https://www.googleapis.com/auth/youtube",
+];
+
+/**
+ * Build the Google OAuth URL for adding a new YouTube account.
+ * The user visits this URL, grants consent, and Google redirects back
+ * to /api/youtube/callback with an authorization code.
+ */
+export async function getAuthUrl(state?: string): Promise<string> {
+  if (!isYouTubeConfigured()) {
+    throw new Error(
+      "YouTube OAuth is not configured. Set YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET in .env. See docs/youtube-oauth.md.",
+    );
+  }
+  const { google } = await import("googleapis");
   const oauth2 = new google.auth.OAuth2(
-    clientId,
-    clientSecret,
-    "urn:ietf:wg:oauth:2.0:oob",
+    process.env.YOUTUBE_CLIENT_ID!,
+    process.env.YOUTUBE_CLIENT_SECRET!,
+    getRedirectUri(),
   );
-  oauth2.setCredentials({ refresh_token: refreshToken });
-  return oauth2;
+  return oauth2.generateAuthUrl({
+    access_type: "offline",
+    scope: SCOPES,
+    prompt: "consent", // forces a new refresh_token each time
+    state,
+  });
+}
+
+/**
+ * Exchange the authorization code (from the OAuth callback) for tokens,
+ * then fetch the user's YouTube channel info and persist a new
+ * YouTubeAccount row. Returns the new account.
+ */
+export async function exchangeCodeAndCreateAccount(code: string) {
+  if (!isYouTubeConfigured()) {
+    throw new Error("YouTube OAuth is not configured.");
+  }
+  const { google } = await import("googleapis");
+  const oauth2 = new google.auth.OAuth2(
+    process.env.YOUTUBE_CLIENT_ID!,
+    process.env.YOUTUBE_CLIENT_SECRET!,
+    getRedirectUri(),
+  );
+  const { tokens } = await oauth2.getToken(code);
+  if (!tokens.refresh_token) {
+    throw new Error(
+      "Google did not return a refresh token. Revoke access at https://myaccount.google.com/permissions and try again, or use prompt:consent.",
+    );
+  }
+  oauth2.setCredentials(tokens);
+
+  // Fetch the channel info
+  const youtube = google.youtube({ version: "v3", auth: oauth2 });
+  const channelRes = await youtube.channels.list({
+    part: ["snippet", "contentDetails"],
+    mine: true,
+  });
+  const channel = channelRes.data.items?.[0];
+  if (!channel) {
+    throw new Error(
+      "No YouTube channel found for this Google account. Create a channel at https://youtube.com first.",
+    );
+  }
+
+  const displayName = channel.snippet?.title || "Unknown channel";
+  const channelId = channel.id || undefined;
+  const avatarUrl = channel.snippet?.thumbnails?.default?.url || undefined;
+
+  // Check if account already exists — if so, update tokens
+  const existing = channelId
+    ? await db.youTubeAccount.findUnique({ where: { channelId } })
+    : null;
+
+  // Pick a color for the account selector (prevents cross-account mistakes)
+  const palette = [
+    "#ef4444", // red
+    "#f97316", // orange
+    "#eab308", // yellow
+    "#22c55e", // green
+    "#06b6d4", // cyan
+    "#3b82f6", // blue
+    "#8b5cf6", // violet
+    "#ec4899", // pink
+  ];
+  const accountCount = await db.youTubeAccount.count();
+  const color = existing?.color || palette[accountCount % palette.length];
+
+  if (existing) {
+    return db.youTubeAccount.update({
+      where: { id: existing.id },
+      data: {
+        refreshToken: tokens.refresh_token,
+        accessToken: tokens.access_token,
+        tokenExpiresAt: tokens.expiry_date
+          ? new Date(tokens.expiry_date)
+          : null,
+        displayName,
+        avatarUrl,
+      },
+    });
+  }
+
+  // If this is the first account, make it the default
+  const isFirst = accountCount === 0;
+
+  return db.youTubeAccount.create({
+    data: {
+      displayName,
+      channelId,
+      avatarUrl,
+      refreshToken: tokens.refresh_token,
+      accessToken: tokens.access_token,
+      tokenExpiresAt: tokens.expiry_date
+        ? new Date(tokens.expiry_date)
+        : null,
+      color,
+      isDefault: isFirst,
+    },
+  });
+}
+
+/**
+ * Get the default account (or the first one if no default is set).
+ */
+export async function getDefaultAccount() {
+  return (
+    (await db.youTubeAccount.findFirst({
+      where: { isDefault: true },
+    })) ||
+    (await db.youTubeAccount.findFirst({
+      orderBy: { createdAt: "asc" },
+    }))
+  );
+}
+
+/**
+ * Get the OAuth2 client for a specific account. Refreshes the access
+ * token automatically if it's expired.
+ */
+async function getOAuth2ClientForAccount(accountId: string) {
+  const account = await db.youTubeAccount.findUnique({
+    where: { id: accountId },
+  });
+  if (!account) {
+    throw new Error(`YouTube account not found: ${accountId}`);
+  }
+
+  const { google } = await import("googleapis");
+  const oauth2 = new google.auth.OAuth2(
+    process.env.YOUTUBE_CLIENT_ID!,
+    process.env.YOUTUBE_CLIENT_SECRET!,
+    getRedirectUri(),
+  );
+  oauth2.setCredentials({
+    refresh_token: account.refreshToken,
+    access_token: account.accessToken || undefined,
+    expiry_date: account.tokenExpiresAt?.getTime(),
+  });
+
+  // googleapis auto-refreshes when the access token is expired, but it
+  // doesn't persist the new token. We hook the 'tokens' event to save it.
+  oauth2.on("tokens", async (tokens) => {
+    if (tokens.refresh_token || tokens.access_token) {
+      await db.youTubeAccount.update({
+        where: { id: account.id },
+        data: {
+          accessToken: tokens.access_token ?? account.accessToken,
+          refreshToken: tokens.refresh_token ?? account.refreshToken,
+          tokenExpiresAt: tokens.expiry_date
+            ? new Date(tokens.expiry_date)
+            : account.tokenExpiresAt,
+        },
+      });
+    }
+  });
+
+  return { oauth2, account };
 }
 
 /**
  * Schedule a video on YouTube by uploading the file and setting
- * publishAt to the desired time. The video stays private until the
- * scheduled time, then YouTube flips it to public automatically.
+ * publishAt to the desired time.
  *
- * In mock mode (YOUTUBE_MOCK_MODE=true) this skips the network call
- * and returns a fake ID for local development.
+ * If `accountId` is provided, uses that account's OAuth tokens. Otherwise
+ * uses the default account. In mock mode, returns a fake ID.
  */
 export async function scheduleOnYouTube(
   input: YouTubeScheduleInput,
 ): Promise<YouTubeScheduleResult> {
   if (isMockMode()) {
-    await new Promise((r) => setTimeout(r, 200));
+    await new Promise((r) => setTimeout(r, 400));
     return {
       youtubeId: fakeYoutubeId(),
       scheduledTime: input.scheduledTime,
       mock: true,
+      accountId: input.accountId ?? undefined,
     };
   }
 
   if (!isYouTubeConfigured()) {
     throw new Error(
-      "YouTube is not configured. Set YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET, " +
-        "YOUTUBE_REFRESH_TOKEN in .env (or set YOUTUBE_MOCK_MODE=true for local dev).",
+      "YouTube is not configured. Set YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET in .env, or set YOUTUBE_MOCK_MODE=true. See docs/youtube-oauth.md.",
     );
   }
 
-  const auth = getOAuth2Client();
-  const youtube = google.youtube({ version: "v3", auth });
+  // Resolve the account
+  let accountId = input.accountId;
+  if (!accountId) {
+    const def = await getDefaultAccount();
+    if (!def) {
+      throw new Error(
+        "No YouTube account connected. Go to Settings → YouTube Accounts → Add account.",
+      );
+    }
+    accountId = def.id;
+  }
 
-  // Build the video metadata. YouTube requires snippet + status.
+  const { oauth2, account } = await getOAuth2ClientForAccount(accountId);
+  const { google } = await import("googleapis");
+  const youtube = google.youtube({ version: "v3", auth: oauth2 });
   const publishAt = toRFC3339(input.scheduledTime);
 
-  // The filePath may be a local path or a URL. For real uploads we need a
-  // readable stream. We support both local files and HTTP(S) URLs.
   const { filePath } = input;
   let bodyStream: Readable;
 
   if (/^https?:\/\//i.test(filePath)) {
-    // Remote URL — fetch as a stream.
     const resp = await fetch(filePath);
     if (!resp.ok || !resp.body) {
       throw new Error(`Failed to fetch video file (${resp.status}): ${filePath}`);
     }
-    bodyStream = Readable.fromWeb(resp.body as any);
+    bodyStream = Readable.fromWeb(resp.body as ReadableStream<Uint8Array>);
   } else {
-    // Local file — use Node fs. Imported lazily so the mock path never
-    // requires fs on the client.
     const fs = await import("fs");
     if (!fs.existsSync(filePath)) {
       throw new Error(`Video file not found: ${filePath}`);
@@ -168,10 +335,6 @@ export async function scheduleOnYouTube(
       },
       media: { body: bodyStream },
     },
-    // Resumable upload — YouTube supports up to 256GB this way.
-    { onUploadProgress: (e: any) => {
-      // Optional: hook into progress events for a future progress bar.
-    } },
   );
 
   const videoId = insertRes.data.id;
@@ -183,5 +346,24 @@ export async function scheduleOnYouTube(
     youtubeId: videoId,
     scheduledTime: input.scheduledTime,
     mock: false,
+    accountId: account.id,
   };
+}
+
+/**
+ * List all connected YouTube accounts (for the account selector UI).
+ */
+export async function listAccounts() {
+  return db.youTubeAccount.findMany({
+    orderBy: { createdAt: "asc" },
+    select: {
+      id: true,
+      displayName: true,
+      channelId: true,
+      avatarUrl: true,
+      color: true,
+      isDefault: true,
+      createdAt: true,
+    },
+  });
 }

@@ -7,6 +7,7 @@ import {
   SettingsIcon,
   HelpCircleIcon,
   ActivityIcon,
+  SparklesIcon,
 } from "lucide-react";
 
 export type SidebarNavItem = {
@@ -36,6 +37,12 @@ export const navGroups: SidebarNavGroup[] = [
   {
     label: "Content",
     items: [
+      {
+        title: "Create",
+        path: "#create",
+        icon: <SparklesIcon />,
+        isActive: false,
+      },
       {
         title: "Long-form",
         path: "#long-form",

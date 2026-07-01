@@ -44,12 +44,15 @@ function buildLastNDays(n: number): VolumeRow[] {
   const out: VolumeRow[] = [];
   for (let i = n - 1; i >= 0; i--) {
     const d = new Date(today.getTime() - i * 24 * 3600 * 1000);
-    // Deterministic but realistic demo distribution
+    // Deterministic pseudo-random distribution (no Math.random — avoids hydration mismatch)
+    const seed = i * 9301 + 49297;
+    const r1 = ((seed * 233280) % 233281) / 233280;
+    const r2 = ((seed * 9301 + 49297) % 233281) / 233280;
     const base = 1 + Math.round(Math.sin(i / 3) + 1);
     out.push({
       date: d.toISOString().slice(0, 10),
-      long: Math.random() > 0.4 ? 1 : 0,
-      shorts: base + (Math.random() > 0.7 ? 1 : 0),
+      long: r1 > 0.6 ? 1 : 0,
+      shorts: base + (r2 > 0.7 ? 1 : 0),
     });
   }
   return out;

@@ -6,38 +6,38 @@ import { mkdirSync, existsSync } from "fs";
 // This avoids issues with absolute paths from .env that might point to
 // a different machine's filesystem (e.g. when cloning across machines).
 function resolveDatabaseUrl(): string {
+  const projectRoot = process.cwd();
   let url = process.env.DATABASE_URL;
 
-  // If no DATABASE_URL is set, or if it points to a path that doesn't
-  // exist on this machine, fall back to a relative path in ./db/
+  // If no DATABASE_URL is set, default to a relative path
   if (!url) {
     url = "file:./db/custom.db";
   }
 
-  // If the path is absolute and doesn't start with the project root,
-  // convert it to a relative path. This handles the case where someone
-  // cloned the repo and their .env still has the old machine's path.
+  // If the path is absolute and doesn't match this machine's project root,
+  // fall back to a relative path. This handles the case where someone
+  // cloned the repo and their .env still has the old machine's path
+  // (e.g. file:/home/z/my-project/db/custom.db on a Windows machine).
   if (url.startsWith("file:/")) {
-    // Extract the path part (after "file:")
     const dbPath = url.slice("file:".length);
-    // If it's not under the current project directory, use a relative path
-    const projectRoot = process.cwd();
-    if (!dbPath.startsWith(projectRoot) && !dbPath.startsWith("./") && !dbPath.startsWith("../")) {
+    // Normalize both paths for comparison
+    const normalizedDbPath = path.resolve(dbPath);
+    const normalizedProjectRoot = path.resolve(projectRoot);
+    if (!normalizedDbPath.startsWith(normalizedProjectRoot)) {
       url = "file:./db/custom.db";
     }
   }
 
   // Ensure the db directory exists
   if (url.startsWith("file:")) {
-    const dbPath = url.slice("file:".length);
-    const dir = path.dirname(dbPath.replace(/^\.\//, ""));
-    const fullDir = path.isAbsolute(dir) ? dir : path.join(projectRoot ?? process.cwd(), dir);
+    const dbPath = url.slice("file:".length).replace(/^\.\//, "");
+    const dir = path.dirname(dbPath);
+    const fullDir = path.isAbsolute(dir) ? dir : path.join(projectRoot, dir);
     if (!existsSync(fullDir)) {
       try {
         mkdirSync(fullDir, { recursive: true });
       } catch {
-        // Directory creation might fail if the path is invalid — Prisma will
-        // throw a more useful error when it tries to connect.
+        // Directory creation might fail — Prisma will throw a clearer error
       }
     }
   }

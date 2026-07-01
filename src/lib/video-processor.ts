@@ -290,22 +290,24 @@ export async function processShort(input: ProcessShortInput): Promise<ProcessSho
 
   // 2. Burn subtitles (if enabled and style is not "none")
   if (subtitlesEnabled && subtitleStyle !== "none" && subtitleSegments.length > 0) {
-    // Write the ASS file
     const assPath = outputPath.replace(/\.[^.]+$/, ".ass");
     const assContent = generateASS(subtitleSegments, subtitleStyle, title);
     await writeFile(assPath, assContent, "utf-8");
-    // Escape the path for the filter
-    const escapedAssPath = assPath.replace(/\\/g, "\\\\").replace(/:/g, "\\:");
-    filters.push(`subtitles='${escapedAssPath}'`);
+    // On Windows: convert backslashes to forward slashes (FFmpeg accepts both)
+    // and escape the colon in the drive letter (C: → C\:)
+    const isWin = process.platform === "win32";
+    const filterPath = isWin
+      ? assPath.replace(/\\/g, "/").replace(/:/g, "\\:")
+      : assPath.replace(/:/g, "\\:");
+    filters.push(`subtitles='${filterPath}'`);
   }
 
-  // 3. Add title header at the top (skip the fontfile on Windows — FFmpeg
-  //    uses the system default font, which is fine)
+  // 3. Add title header at the top
   if (title) {
     const escapedTitle = escapeDrawtext(title.slice(0, 50));
     const isWin = process.platform === "win32";
     const fontfileParam = isWin
-      ? "" // Windows: use system default font
+      ? ""
       : ":fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf";
     filters.push(
       `drawtext=text='${escapedTitle}'${fontfileParam}:fontsize=48:fontcolor=white:borderw=3:bordercolor=black:x=(w-text_w)/2:y=60:box=1:boxcolor=black@0.5:boxborderw=10`,
@@ -313,10 +315,11 @@ export async function processShort(input: ProcessShortInput): Promise<ProcessSho
   }
 
   // 4. Add duration display at the bottom-right
+  //    Use "30s" format instead of "0:30" — the colon breaks the drawtext filter
   const duration = endSec - startSec;
-  const durationText = `${Math.floor(duration / 60)}:${String(Math.floor(duration % 60)).padStart(2, "0")}`;
-  const isWin2 = process.platform === "win32";
-  const durFontfile = isWin2 ? "" : ":fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf";
+  const durationText = `${Math.round(duration)}s`;
+  const isWin3 = process.platform === "win32";
+  const durFontfile = isWin3 ? "" : ":fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf";
   filters.push(
     `drawtext=text='${durationText}'${durFontfile}:fontsize=36:fontcolor=white:borderw=2:bordercolor=black:x=w-text_w-20:y=h-text_h-20`,
   );

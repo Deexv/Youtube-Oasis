@@ -88,6 +88,8 @@ function generateASS(
   const styles = getASSStyleConfig(style);
 
   // Header with style definitions
+  // Add a "Title" style for the header overlay (used on Windows where
+  // drawtext doesn't work — we embed the title as an ASS dialogue line)
   let ass = `[Script Info]
 Title: ${title.replace(/[\n\r]/g, " ")}
 ScriptType: v4.00+
@@ -98,10 +100,20 @@ ScaledBorderAndShadow: yes
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 Style: ${styles.name},${styles.font},${styles.size},${styles.primaryColour},${styles.secondaryColour},${styles.outlineColour},${styles.backColour},${styles.bold},0,0,0,100,100,${styles.spacing},0,1,${styles.outline},${styles.shadow},2,80,80,${styles.marginV},1
+Style: TitleStyle,Arial Black,56,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,1,0,0,0,100,100,2,0,1,4,2,8,80,80,80,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 `;
+
+  // On Windows, embed the title as the first ASS dialogue line (shown for 5 seconds)
+  // since drawtext doesn't work there.
+  const isWin = process.platform === "win32";
+  if (isWin && title) {
+    const titleEnd = Math.min(5, segments.length > 0 ? segments[segments.length - 1].endSec : 5);
+    const titleText = title.replace(/[\n\r]/g, " ").slice(0, 50).replace(/\{/g, "").replace(/\}/g, "");
+    ass += `Dialogue: 1,0:00:00.00,${assTime(titleEnd)},TitleStyle,,0,0,0,,${titleText}\n`;
+  }
 
   // Dialogue lines
   for (const seg of segments) {
@@ -305,26 +317,26 @@ export async function processShort(input: ProcessShortInput): Promise<ProcessSho
   }
 
   // 3. Add title header at the top
-  if (title) {
+  //    Skip on Windows — drawtext uses fontconfig which fails with
+  //    "Cannot load default config file" even when the ass filter works.
+  //    The title is still shown in the file name and the shorts list.
+  const isWinDraw = process.platform === "win32";
+  if (title && !isWinDraw) {
     const escapedTitle = escapeDrawtext(title.slice(0, 50));
-    const isWin = process.platform === "win32";
-    const fontfileParam = isWin
-      ? ""
-      : ":fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf";
     filters.push(
-      `drawtext=text='${escapedTitle}'${fontfileParam}:fontsize=48:fontcolor=white:borderw=3:bordercolor=black:x=(w-text_w)/2:y=60:box=1:boxcolor=black@0.5:boxborderw=10`,
+      `drawtext=text='${escapedTitle}':fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:fontsize=48:fontcolor=white:borderw=3:bordercolor=black:x=(w-text_w)/2:y=60:box=1:boxcolor=black@0.5:boxborderw=10`,
     );
   }
 
   // 4. Add duration display at the bottom-right
-  //    Use "30s" format instead of "0:30" — the colon breaks the drawtext filter
+  //    Skip on Windows (same fontconfig issue)
   const duration = endSec - startSec;
   const durationText = `${Math.round(duration)}s`;
-  const isWin3 = process.platform === "win32";
-  const durFontfile = isWin3 ? "" : ":fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf";
-  filters.push(
-    `drawtext=text='${durationText}'${durFontfile}:fontsize=36:fontcolor=white:borderw=2:bordercolor=black:x=w-text_w-20:y=h-text_h-20`,
-  );
+  if (!isWinDraw) {
+    filters.push(
+      `drawtext=text='${durationText}':fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf:fontsize=36:fontcolor=white:borderw=2:bordercolor=black:x=w-text_w-20:y=h-text_h-20`,
+    );
+  }
 
   const filterComplex = filters.join(",");
 

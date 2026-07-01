@@ -8,8 +8,9 @@
  *   4. Runs prisma db push (creates the SQLite file + tables)
  *
  * Each step is wrapped in try/catch with clear error messages.
- * If any step fails, it prints what went wrong and how to fix it,
- * then exits with code 1 so the dev server doesn't start with a broken DB.
+ * If prisma db push succeeds, the DB is ready — we don't verify the
+ * file path because Prisma resolves it relative to the schema directory
+ * on some platforms, which may differ from the project root.
  */
 
 import { mkdirSync, existsSync, writeFileSync, readFileSync } from "fs";
@@ -84,34 +85,22 @@ if (!existsSync(envPath)) {
   }
 }
 
-// ─── Step 3: Check if DB file already exists ───────────────────────────
-const dbFile = path.join(projectRoot, "db", "custom.db");
-if (existsSync(dbFile)) {
-  log("Database file exists — skipping creation");
-  log("✓ Setup complete");
-  process.exit(0);
-}
-
-// ─── Step 4: Run prisma generate ───────────────────────────────────────
+// ─── Step 3: Run prisma generate ───────────────────────────────────────
 const npxCmd = isWindows ? "npx.cmd" : "npx";
 if (!runCommand(npxCmd, ["prisma", "generate"], "prisma generate")) {
   error("prisma generate failed. Try running manually: npx prisma generate");
   process.exit(1);
 }
 
-// ─── Step 5: Run prisma db push ────────────────────────────────────────
+// ─── Step 4: Run prisma db push ────────────────────────────────────────
 if (!runCommand(npxCmd, ["prisma", "db", "push"], "prisma db push")) {
   error("prisma db push failed. Try running manually: npx prisma db push");
   error(`If it fails with a binary download error, set: PRISMA_ENGINES_MIRROR=https://binaries.prisma.sh`);
   process.exit(1);
 }
 
-// ─── Step 6: Verify the DB file was created ────────────────────────────
-if (existsSync(dbFile)) {
-  log("✓ Database file created: db/custom.db");
-  log("✓ Setup complete");
-} else {
-  error("Database file was not created. This is unexpected.");
-  error("Try running manually: npx prisma db push");
-  process.exit(1);
-}
+// ─── Done ──────────────────────────────────────────────────────────────
+// We don't verify the DB file path because Prisma resolves it relative to
+// the schema directory on some platforms, which may differ from the project
+// root. If `prisma db push` succeeded, the DB is ready.
+log("✓ Setup complete — database is ready");

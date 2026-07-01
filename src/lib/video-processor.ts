@@ -344,12 +344,12 @@ export async function processShort(input: ProcessShortInput): Promise<ProcessSho
   ];
 
   try {
-    const isWin = process.platform === "win32";
+    // Don't use shell:true — execFile handles spaces in paths correctly
+    // without shell mode. Shell mode on Windows splits args at spaces.
     const { stderr } = await execFileAsync("ffmpeg", args, {
       timeout: 300000,
       maxBuffer: 1024 * 1024 * 10,
       windowsHide: true,
-      shell: isWin, // Use shell on Windows for paths with spaces
     });
 
     // Verify the output file exists
@@ -360,7 +360,6 @@ export async function processShort(input: ProcessShortInput): Promise<ProcessSho
       fileSize: fileStat.size,
     };
   } catch (e: any) {
-    // Include the full stderr (truncated to 1000 chars) so we can see the actual FFmpeg error
     const stderrTail = e?.stderr?.slice(-1000) || e?.message || "no stderr";
     throw new Error(`FFmpeg failed: ${stderrTail}`);
   }
@@ -391,15 +390,21 @@ export async function generateSRTViaWhisper(
   const isWindows = process.platform === "win32";
   const pythonCmd = isWindows ? "python" : "python3";
 
+  // On Windows with shell:true, we must quote paths that contain spaces
+  const quote = (s: string) => `"${s}"`;
+  const pyArgs = isWindows
+    ? [quote(scriptPath), quote(videoPath), quote(outputPath), model]
+    : [scriptPath, videoPath, outputPath, model];
+
   try {
     const { stderr } = await execFileAsync(
       pythonCmd,
-      [scriptPath, videoPath, outputPath, model],
+      pyArgs,
       {
-        timeout: 600000, // 10 min timeout
+        timeout: 600000,
         maxBuffer: 1024 * 1024 * 10,
         windowsHide: true,
-        shell: isWindows, // Required on Windows to find python.exe
+        shell: isWindows,
       },
     );
     return outputPath;

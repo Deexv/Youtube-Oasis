@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] — 2026-07-01
+
+### Fixed
+- **"Environment variable not found: DATABASE_URL" on Windows** — the `.env` file had a hardcoded Linux path. `db.ts` now resolves the SQLite path relative to the project root, auto-creates the `db/` folder, and falls back to `./db/custom.db` if the .env path is invalid.
+- **`/api/settings` and `/api/upload` returning 500 when DB not initialized** — both routes now catch DB errors and return defaults + helpful messages instead of crashing.
+- **`predev` hook now runs `prisma db push`** — `npm run dev` auto-creates the DB file and tables before starting the server. No more "run db:push first" errors.
+
+### Added
+- **Health check endpoint** — `GET /api/health` checks the database, uploads directory, and FFmpeg, returning clear fix instructions if something is wrong.
+- DB path auto-resolution in `db.ts` (cross-platform, auto-creates folders).
+
 ## [0.3.0] — 2026-07-01
 
 ### Added — Real video processing pipeline

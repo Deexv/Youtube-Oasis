@@ -48,18 +48,25 @@ export async function POST(req: Request) {
       );
     }
 
-    const settingsRow = await db.setting.findUnique({
-      where: { key: "scheduling" },
-    });
+    // Check DB is initialized before trying to read settings
     let maxBytes: number;
-    if (settingsRow) {
-      try {
-        const s = JSON.parse(settingsRow.value);
-        maxBytes = (s.uploadLimitMb || 2048) * 1024 * 1024;
-      } catch {
+    try {
+      const settingsRow = await db.setting.findUnique({
+        where: { key: "scheduling" },
+      });
+      if (settingsRow) {
+        try {
+          const s = JSON.parse(settingsRow.value);
+          maxBytes = (s.uploadLimitMb || 2048) * 1024 * 1024;
+        } catch {
+          maxBytes = Number(process.env.UPLOAD_MAX_SIZE_MB || 2048) * 1024 * 1024;
+        }
+      } else {
         maxBytes = Number(process.env.UPLOAD_MAX_SIZE_MB || 2048) * 1024 * 1024;
       }
-    } else {
+    } catch (dbErr: any) {
+      // DB not initialized — use default limit and warn in the response
+      console.error("DB error in upload route (using default limit):", dbErr?.message);
       maxBytes = Number(process.env.UPLOAD_MAX_SIZE_MB || 2048) * 1024 * 1024;
     }
 

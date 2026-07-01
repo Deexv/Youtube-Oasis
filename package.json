@@ -1,11 +1,11 @@
 {
   "name": "shorts-pilot",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "scripts": {
-    "predev": "prisma generate",
+    "predev": "prisma generate && prisma db push",
     "dev": "cross-env NODE_OPTIONS=--max-old-space-size=4096 next dev -p 3000",
-    "prebuild": "prisma generate",
+    "prebuild": "prisma generate && prisma db push",
     "build": "next build",
     "start": "next start -p 3000",
     "lint": "eslint .",

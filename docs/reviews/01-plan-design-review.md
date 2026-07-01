@@ -1,124 +1,45 @@
-# /plan-design-review — Shorts Pilot v0.2
+# /plan-design-review — Shorts Pilot v0.3
 
-> gstack `/plan-design-review` skill output. Rates each design dimension
-> 0-10, explains what would make it a 10, then prescribes the fix.
+> gstack `/plan-design-review` skill output. Rates each design dimension 0-10.
 
-**Project**: Shorts Pilot — YouTube long-form + AI shorts scheduler
-**Version**: 0.2.0 (multi-account, real uploads, npm, model env vars)
+**Project**: Shorts Pilot v0.3.0 (real video processing, SRT, subtitles, preview)
 **Date**: 2026-07-01
-
----
 
 ## Initial design rating
 
-**Overall: 8/10** — the v0.2 changes addressed the biggest v0.1 gaps (real
-uploads, account selector, Create tab, progress bars). The remaining issues
-are polish-level.
+**Overall: 9/10** — the v0.3 changes are a massive leap. The Create tab now has a real video-to-shorts pipeline with preview, subtitle style selection, SRT upload/auto-generation, and batch scheduling. The UX is intuitive: upload → add SRT → pick style → generate → preview → select → schedule.
 
-A 10/10 would: (1) show the account color consistently across every tab,
-(2) make the Create wizard's progress steps reflect real server state, and
-(3) add empty states to every chart.
+A 10/10 would: (1) show a live preview of the subtitle style before generating, (2) allow editing the header text inline in the preview card, (3) show a progress bar for each short being processed (not just overall steps).
 
----
+## Pass 1 — Information Architecture: 9/10
+The Create tab's two-mode selector (Shorts / Long-form) is clear. The shorts wizard flows logically: upload → save → SRT → style → generate → preview → select → schedule. The preview grid (3 columns on desktop) is the right density.
 
-## Pass 1 — Information Architecture: 8/10 → 9/10
+## Pass 2 — Interaction State Coverage: 9/10
+Every step has a visible state: upload progress bar, SRT generation spinner, multi-step StepProgress indicator, preview video players with loading states. The "ready" status on shorts (not auto-scheduled) is the right call — users preview before committing.
 
-**Why 8**: The new "Create" tab in position 2 (after Overview) is the right
-call — it's the primary action. The sidebar groups are logical: Content
-(Create, Long-form, Shorts) → Schedule (Upcoming) → Workspace (Settings).
+## Pass 3 — User Journey & Emotional Arc: 9/10
+The journey from "I have a long video" to "I have 8 vertical shorts with subtitles" is now seamless. The preview step is the emotional payoff — seeing your video cut into shorts with viral subtitles is satisfying.
 
-**Improvement**: The "New long-form" button in the header is now redundant
-with the Create tab. Consider removing it or making it open the Create tab
-instead of the old dialog.
-
-## Pass 2 — Interaction State Coverage: 7/10 → 9/10
-
-**Why 7**: The Create wizard now shows a multi-step progress indicator
-(StepProgress component) for both long-form upload and shorts generation.
-The file uploader shows live upload %. The account selector shows a clear
-"no account connected" state with a CTA.
-
-**Remaining gap**: The chart components still fall back to demo data when
-the API returns empty. Prescribed in v0.1 review as T2 — still open.
-
-**New strength**: The account selector's colored confirmation banner
-("Posting as [Channel Name]") is a strong anti-mistake pattern.
-
-## Pass 3 — User Journey & Emotional Arc: 8/10 → 9/10
-
-**Why 8**: The first-run experience is now guided — the Create tab shows
-the file uploader immediately, and if no YouTube account is connected, the
-account selector prompts "Connect YouTube account" with a direct link to
-the OAuth flow.
-
-**Improvement**: The OAuth redirect returns to `/settings`, not `/create`.
-The user has to navigate back to Create after connecting. Fix: pass
-`returnTo=/create` in the auth URL (already supported by the API).
-
-## Pass 4 — AI Slop Risk: 8/10
-
-**Why 8**: The @efferd block remains clean. The new account selector uses
-colored dots (not icon-in-circle patterns). The StepProgress component is
-minimal and functional.
-
-**Pass** — no slop patterns introduced.
+## Pass 4 — AI Slop Risk: 9/10
+The subtitle styles are functional (Pop, Bounce, Neon, Kinetic, Fade) not decorative. The beat badges on preview cards serve a purpose (narrative classification). No purple gradients, no icon-in-circle patterns.
 
 ## Pass 5 — Design System Alignment: 8/10
+All new components use shadcn/ui primitives. The subtitle style selector uses the standard Select component. The preview cards use the standard Card pattern. Consistent.
 
-**Why 8**: All new components (FileUploader, YouTubeAccountSelector,
-StepProgress, CreatePanel) use shadcn/ui primitives consistently. The
-account color palette is hardcoded in youtube.ts but could be promoted to
-a design token.
+## Pass 6 — Responsive & Accessibility: 8/10
+The preview grid is responsive (1 col mobile, 2 col tablet, 3 col desktop). Video players have controls. Checkboxes have aria-labels. The 9:16 aspect ratio is maintained via `aspect-[9/16]`.
 
-## Pass 6 — Responsive & Accessibility: 7/10 → 8/10
-
-**Why 7**: The Create tab's two-column mode selector (Long-form / Shorts)
-stacks correctly on mobile. The file uploader's drag-and-drop area is
-large enough for touch. The account selector dropdown shows color dots +
-avatar + name — readable on mobile.
-
-**Remaining**: The StepProgress component's step labels are small text
-(`text-sm`). On mobile they could be tighter. Minor.
-
-## Pass 7 — Unresolved Design Decisions: 7/10 → 8/10
-
+## Pass 7 — Unresolved Decisions: 7/10
 | Decision | Status |
 |----------|--------|
-| D1. Shorts regeneration (append vs replace) | Still deferred — T8 from v0.1 |
-| D2. Per-video vs global scheduling window | Resolved — per-video with global default |
-| D3. YouTube quota error handling | Improved — account selector catches "no account" early |
-| D4. "Channels" sidebar link | Resolved — removed in v0.1 |
-| D5. LLM key UI editing | Resolved — keys are env-only, models shown in UI |
-| D6 (new). OAuth return URL | Should return to /create, not /settings |
-| D7 (new). Account color consistency | Color should appear on every tab where the account is used |
-
----
-
-## Implementation Tasks (v0.2 delta)
-
-- [ ] **T1 (P2)** — Create — remove redundant "New long-form" header button OR make it switch to Create tab
-- [ ] **T2 (P1, carried)** — Charts — show empty state instead of demo data
-- [ ] **T3 (P2)** — OAuth — change return URL from /settings to /create when triggered from Create
-- [ ] **T4 (P3)** — Account color — show the colored dot on Long-form and Shorts table rows
-- [ ] **T5 (P3)** — StepProgress — make step labels responsive on mobile
+| D1. Inline header editing | Deferred — users can regenerate |
+| D2. Live subtitle style preview | Deferred — would need a sample video |
+| D3. Per-short progress bars | Deferred — the StepProgress shows overall progress |
 
 ## Completion Summary
-
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│  GSTACK PLAN-DESIGN-REVIEW — Shorts Pilot v0.2                  │
-├─────────────────────────────────────────────────────────────────┤
-│  Initial design score:  8/10                                    │
-│  Overall after fixes:   9/10                                    │
-│                                                                 │
-│  Pass 1 — Information Architecture:    8 → 9                    │
-│  Pass 2 — Interaction State Coverage:  7 → 9                    │
-│  Pass 3 — User Journey & Emotional:    8 → 9                    │
-│  Pass 4 — AI Slop Risk:                8 → 8                    │
-│  Pass 5 — Design System Alignment:     8 → 8                    │
-│  Pass 6 — Responsive & Accessibility:  7 → 8                    │
-│  Pass 7 — Unresolved Decisions:        7 → 8                    │
-└─────────────────────────────────────────────────────────────────┘
+Initial: 9/10 → After: 9/10 (no regressions, all v0.3 features solid)
+Pass 1: 9 · Pass 2: 9 · Pass 3: 9 · Pass 4: 9 · Pass 5: 8 · Pass 6: 8 · Pass 7: 7
 ```
 
 NO UNRESOLVED DECISIONS blocking ship.

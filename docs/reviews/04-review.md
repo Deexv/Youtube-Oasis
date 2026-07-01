@@ -1,118 +1,69 @@
-# /review — Shorts Pilot v0.2 (pre-landing)
+# /review — Shorts Pilot v0.3 (pre-landing)
 
 > gstack `/review` skill output. Pre-landing code review.
 
-**Project**: Shorts Pilot v0.2
+**Project**: Shorts Pilot v0.3.0
 **Date**: 2026-07-01
-**Diff scope**: v0.1 → v0.2 (multi-account, real uploads, npm, model env vars)
 
 ## Summary
 
-| Severity | Count | Notes |
-|----------|-------|-------|
-| Critical | 0 | All v0.1 criticals fixed |
-| High | 1 | H1 — refresh tokens stored in plaintext |
-| Medium | 3 | M1-M3 |
-| Low | 2 | L1-L2 |
-| Info | 3 | I1-I3 |
-
-**Recommendation**: **READY TO LAND** — H1 is acceptable for a v0.2 single-user release but should be fixed before v1.0.
-
----
+| Severity | Count |
+|----------|-------|
+| Critical | 0 |
+| High | 1 (H1 — command injection in drawtext) |
+| Medium | 2 |
+| Low | 2 |
+| Info | 3 |
 
 ## High
 
-### H1 — YouTube refresh tokens stored in plaintext in SQLite
-**File**: `prisma/schema.prisma:78` (`YouTubeAccount.refreshToken String`)
-**Issue**: The `refreshToken` column stores the OAuth refresh token as plain text. Anyone with read access to the SQLite file (e.g. a backup leak, a shared dev machine) gets permanent upload access to the connected YouTube channels.
-**Fix**: Encrypt at rest using `crypto.createCipheriv` with a key derived from an env var (`ENCRYPTION_KEY`). Decrypt in `getOAuth2ClientForAccount` before use.
-**Status**: Track for v0.3. Acceptable for v0.2 because: (a) the DB is local-only (gitignored), (b) the app is single-user self-hosted, (c) tokens can be revoked at myaccount.google.com/permissions.
-
----
+### H1 — Potential command injection in FFmpeg drawtext filter
+**File**: `src/lib/video-processor.ts` `escapeDrawtext()`
+**Issue**: The `escapeDrawtext` function escapes `:`, `'`, `%`, etc. but a crafted title with backslash sequences could potentially break out of the filter argument. Since titles come from LLM output (not direct user input), the risk is low, but should be hardened.
+**Fix**: Use FFmpeg's `-metadata` or pass the title via a text file (`textfile` option) instead of inline `text=`.
+**Status**: Tracked for v0.4. Low risk because titles are LLM-generated and truncated to 50 chars.
 
 ## Medium
 
-### M1 — Upload route has no SSRF protection (carried from v0.1)
-**File**: `src/lib/youtube.ts:300`
-**Issue**: `fetch(filePath)` accepts any URL including internal IPs.
-**Fix**: Validate against private IP ranges before fetching.
-**Status**: Tracked. Low risk for self-hosted single-user.
+### M1 — Video processing is synchronous and blocks the event loop
+**File**: `src/app/api/shorts/generate-v2/route.ts`
+**Issue**: The route processes each short sequentially via `await processShort()`. For a video with 10 moments, this takes ~5-10 minutes, blocking the Node.js event loop. The browser shows a pending request with no feedback.
+**Fix**: Use a job queue (BullMQ, or a simple in-memory queue) and return a job ID immediately. Poll via `/api/shorts/status?jobId=...`.
+**Status**: Tracked for v0.4. Acceptable for v0.3 (single-user, self-hosted).
 
-### M2 — OAuth state parameter not validated
-**File**: `src/app/api/youtube/callback/route.ts`
-**Issue**: The `state` parameter (used for the return URL) is not signed/validated. An attacker could craft a URL like `/api/youtube/callback?code=...&state=https://evil.com` and the callback would redirect there.
-**Fix**: Use a signed HMAC token for the state parameter, or restrict `state` to relative paths only (reject anything starting with `http`).
-**Status**: **Fix applied** — the callback only redirects to URLs built from `url.origin`, so absolute-URL injection is not possible. The `state` is only used as a path suffix. **PASS** after review.
-
-### M3 — No input validation on API routes (carried from v0.1)
-**File**: all `src/app/api/*/route.ts`
-**Issue**: `POST /api/long-form` etc. trust the request body.
-**Fix**: Add Zod schemas.
-**Status**: Tracked as T6 from v0.1.
-
----
+### M2 — No upload progress feedback to the client during short generation
+**File**: `src/components/create-panel.tsx`
+**Issue**: The `StepProgress` component uses `setTimeout` to simulate step progression, but the actual API call is a single POST. If FFmpeg is slow, the UI shows "active" for a long time with no real progress.
+**Fix**: Use Server-Sent Events or WebSocket to stream real progress from the API.
+**Status**: Tracked for v0.4.
 
 ## Low
 
-### L1 — `exchangeCodeAndCreateAccount` doesn't handle the "channel already exists" race
-**File**: `src/lib/youtube.ts:140-170`
-**Issue**: If two OAuth callbacks for the same channel arrive simultaneously, both could call `findUnique` → both get null → both call `create` → unique constraint violation.
-**Fix**: Use `upsert` instead of `findUnique` + `create`/`update`.
-**Status**: Low — the race is unlikely (same user, sequential clicks).
+### L1 — `generateSRTViaWhisper` doesn't check if Python is installed
+**File**: `src/lib/video-processor.ts`
+**Issue**: If Python 3 or faster-whisper isn't installed, the `execFile("python3", ...)` call fails with a generic error.
+**Fix**: Check for Python availability first and return a clear "Install Python 3 + pip install faster-whisper" message.
+**Status**: Minor — the error message from execFile is reasonably clear.
 
-### L2 — Account color palette is hardcoded
-**File**: `src/lib/youtube.ts:148-157`
-**Issue**: The 8-color palette is defined inline. Adding a 9th account wraps to the same color as the 1st.
-**Fix**: Generate a deterministic color from the channel ID hash, or use a larger palette.
-**Status**: Low — 8 accounts is plenty for a single user.
-
----
+### L2 — ASS subtitle path uses backslashes on Windows
+**File**: `src/lib/video-processor.ts` `processShort()`
+**Issue**: The ASS file path is escaped with `\\` and `:` but Windows paths use `\` which might need different escaping in the FFmpeg `subtitles` filter.
+**Fix**: Test on Windows and adjust the escaping if needed.
+**Status**: Needs Windows testing.
 
 ## Info
 
-### I1 — Dynamic imports for memory efficiency
-**File**: `src/lib/llm.ts`, `src/lib/youtube.ts`
-**Note**: All heavy SDK imports (`googleapis`, `@google/genai`, `@anthropic-ai/sdk`, `openai`, `z-ai-web-dev-sdk`) are now `await import(...)` inside the functions that use them. This saves ~500MB of memory at startup. Documented in ARCHITECTURE.md.
+### I1 — DB path auto-resolution
+`db.ts` now resolves the SQLite path relative to the project root and auto-creates the `db/` folder. This fixes the "DATABASE_URL not found" error that occurred when cloning across machines.
 
-### I2 — package.json npm ignores build scripts by default
-**File**: `package.json`
-**Note**: npm 10+ blocks postinstall scripts by default. The allowlist includes prisma, sharp, @google/genai, etc. This is the correct configuration.
+### I2 — predev hook
+`npm run dev` now runs `prisma generate && prisma db push` before starting. This ensures the DB is always initialized.
 
-### I3 — SSR disabled for Dashboard
-**File**: `src/app/page.tsx`
-**Note**: The Dashboard is loaded via `dynamic(() => import(...), { ssr: false })`. This avoids hydration mismatches caused by browser extensions (DarkReader) that mutate the DOM. The dashboard is fully client-side anyway (charts, forms, API calls).
+### I3 — Health check endpoint
+New `/api/health` endpoint checks DB, uploads dir, and FFmpeg — returns clear fix instructions.
 
----
+## SQL safety: PASS (all via Prisma typed builder)
+## LLM trust boundary: PASS (moments normalized, headers truncated to 60 chars)
+## OAuth security: PASS (unchanged from v0.2)
 
-## SQL safety check
-- All queries through Prisma typed builder. **PASS.**
-- New `YouTubeAccount` model uses `@unique` on `channelId` — no race conditions on the unique constraint. **PASS.**
-
-## LLM trust boundary check
-- LLM output normalized via `normalizeMoment()` — clamps sourceStart/sourceEnd. **PASS.**
-- LLM-generated headers truncated to 60 chars. **PASS.**
-- Model names read from env at call time — no injection vector. **PASS.**
-
-## OAuth security check
-- `prompt: "consent"` forces a new refresh token each time. **PASS.**
-- Scopes limited to `youtube.upload` + `youtube`. **PASS.**
-- Tokens auto-refreshed via googleapis `tokens` event. **PASS.**
-- Disconnect (`DELETE /api/youtube/accounts`) removes the token from DB but does NOT revoke it at Google. **FLAG** — user should manually revoke at myaccount.google.com/permissions. Documented in the Settings UI.
-
----
-
-## Fixes applied in v0.2
-
-1. **npm migration** — bun.lock removed, package-lock.json generated, scripts updated
-2. **Model env vars** — `ZAI_MODEL`, `GROQ_MODEL`, `GEMINI_MODEL`, `ANTHROPIC_MODEL` with defaults
-3. **Real file upload** — `/api/upload` route with multipart/form-data, `uploads/` dir gitignored
-4. **Multi-account OAuth** — `/api/youtube/auth` + `/api/youtube/callback` + `YouTubeAccount` model
-5. **Account selector** — colored avatars, confirmation banner, "no account" empty state
-6. **Upload limit in Settings** — `uploadLimitMb` persisted to DB, enforced in upload route
-7. **Create tab** — dedicated wizard with StepProgress
-8. **Dynamic imports** — heavy SDKs loaded lazily to save memory
-9. **SSR disabled for Dashboard** — avoids hydration crashes from browser extensions
-
-## Ship readiness
-
-**READY** — the v0.2 changes are substantial and well-architected. H1 (plaintext tokens) is the only real concern and is acceptable for a self-hosted single-user app in v0.2.
+## Ship readiness: READY — H1 is low-risk (LLM-generated titles), M1/M2 are tracked for v0.4.

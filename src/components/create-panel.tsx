@@ -135,6 +135,7 @@ function ShortsWizard() {
   const [srtContent, setSrtContent] = useState("");
   const [subtitleStyle, setSubtitleStyle] = useState<SubtitleStyle>("pop");
   const [subtitlesEnabled, setSubtitlesEnabled] = useState(true);
+  const [whisperModel, setWhisperModel] = useState<string>("tiny");
   const [uploadLimitMb, setUploadLimitMb] = useState(2048);
   const [busy, setBusy] = useState(false);
   const [generatingSrt, setGeneratingSrt] = useState(false);
@@ -173,7 +174,7 @@ function ShortsWizard() {
       const response = await fetch("/api/srt/generate-stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ longFormId, model: "base" }),
+        body: JSON.stringify({ longFormId, model: whisperModel }),
       });
 
       if (!response.ok) {
@@ -239,30 +240,27 @@ function ShortsWizard() {
     setGeneratedShorts([]);
     setSelectedIds(new Set());
 
+    const subtitleLabel = subtitlesEnabled
+      ? `Cut + convert + burn ${subtitleStyle} subtitles`
+      : "Cut + convert to 9:16 vertical (subtitles off)";
+
     const stepList: Step[] = [
       { label: "Upload video file", status: "done" },
       { label: "Analyze transcript with LLM (6-beat pattern — finds ALL moments)", status: "active" },
-      { label: "Cut + convert each moment to 9:16 vertical", status: "pending" },
-      { label: "Burn viral subtitles + title header", status: "pending" },
+      { label: subtitleLabel, status: "pending" },
       { label: "Save shorts for preview", status: "pending" },
     ];
     setSteps([...stepList]);
     const t = toast.loading("Analyzing video with LLM…");
 
     try {
-      // Step 1: LLM analysis (simulated progress while the API runs)
+      // Simulated progress while the API runs
       setTimeout(() => {
         stepList[1].status = "done";
         stepList[2].status = "active";
         setSteps([...stepList]);
-        toast.loading("Cutting + converting to vertical (FFmpeg)…", { id: t });
+        toast.loading(subtitleLabel + "…", { id: t });
       }, 2000);
-      setTimeout(() => {
-        stepList[2].status = "done";
-        stepList[3].status = "active";
-        setSteps([...stepList]);
-        toast.loading("Burning subtitles + adding title overlay…", { id: t });
-      }, 8000);
 
       const r = await fetch("/api/shorts/generate-v2", {
         method: "POST",
@@ -453,7 +451,7 @@ function ShortsWizard() {
                 <FileTextIcon className="size-4" />
                 Subtitles / SRT (for accurate timing)
               </Label>
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <Button
                   variant="outline"
                   size="sm"
@@ -468,6 +466,17 @@ function ShortsWizard() {
                   )}
                   Auto-generate via Whisper
                 </Button>
+                <Select value={whisperModel} onValueChange={setWhisperModel} disabled={generatingSrt}>
+                  <SelectTrigger size="sm" className="w-[120px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="tiny">tiny (fastest)</SelectItem>
+                    <SelectItem value="base">base (balanced)</SelectItem>
+                    <SelectItem value="small">small (accurate)</SelectItem>
+                    <SelectItem value="medium">medium (slow)</SelectItem>
+                  </SelectContent>
+                </Select>
                 <Button
                   variant="outline"
                   size="sm"
@@ -508,7 +517,7 @@ function ShortsWizard() {
                 value={srtContent}
                 onChange={(e) => setSrtContent(e.target.value)}
                 placeholder="Paste SRT content here, or click 'Auto-generate via Whisper' above…"
-                className="max-h-40 resize-y overflow-y-auto font-mono text-xs"
+                className="h-40 resize-none overflow-y-auto font-mono text-xs"
               />
               {srtContent && (
                 <p className="text-xs text-muted-foreground">

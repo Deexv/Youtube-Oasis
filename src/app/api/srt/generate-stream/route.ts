@@ -69,6 +69,7 @@ export async function POST(req: Request) {
 
           const proc = spawn(pythonCmd, [scriptPath, longForm.filePath, srtPath, model], {
             windowsHide: true,
+            shell: isWindows, // Required on Windows to find python.exe
           });
 
           let stderrBuffer = "";

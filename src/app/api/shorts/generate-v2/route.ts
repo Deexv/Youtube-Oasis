@@ -123,66 +123,80 @@ export async function POST(req: Request) {
     );
     const headers = await Promise.all(headerPromises);
 
-    // Step 3: Process all moments into video files IN PARALLEL
-    // (FFmpeg is CPU-bound, but parallel processing still helps because each
-    // process has its own thread pool for encoding)
-    const processPromises = moments.map(async (m, i) => {
-      try {
-        const header = headers[i] || m.title;
+    // Step 3: Process moments into video files in batches of 2
+    // (more than 2 concurrent FFmpeg processes overwhelms low-spec CPUs)
+    const BATCH_SIZE = 2;
+    const created: Array<{
+      id: string;
+      beat: string;
+      title: string;
+      header: string;
+      sourceStart: number;
+      sourceEnd: number;
+      duration: number;
+      fileSize: number;
+      subtitleStyle: string;
+      status: string;
+    }> = [];
 
-        const segSrt = extractSrtSegment(srtSegments, m.sourceStart, m.sourceEnd);
+    for (let i = 0; i < moments.length; i += BATCH_SIZE) {
+      const batch = moments.slice(i, i + BATCH_SIZE);
+      const batchResults = await Promise.all(
+        batch.map(async (m, j) => {
+          try {
+            const header = headers[i + j] || m.title;
+            const segSrt = extractSrtSegment(srtSegments, m.sourceStart, m.sourceEnd);
+            const shortFileName = `short-${Date.now()}-${i + j + 1}-${m.beat}.mp4`;
+            const shortFilePath = path.join(shortsDir, shortFileName);
 
-        const shortFileName = `short-${Date.now()}-${i + 1}-${m.beat}.mp4`;
-        const shortFilePath = path.join(shortsDir, shortFileName);
+            const result = await processShort({
+              inputPath: longForm.filePath,
+              outputPath: shortFilePath,
+              startSec: m.sourceStart,
+              endSec: m.sourceEnd,
+              title: header,
+              subtitleSegments: segSrt,
+              subtitleStyle: subtitleStyle as SubtitleStyle,
+              subtitlesEnabled,
+            });
 
-        const result = await processShort({
-          inputPath: longForm.filePath,
-          outputPath: shortFilePath,
-          startSec: m.sourceStart,
-          endSec: m.sourceEnd,
-          title: header,
-          subtitleSegments: segSrt,
-          subtitleStyle: subtitleStyle as SubtitleStyle,
-          subtitlesEnabled,
-        });
+            const row = await db.short.create({
+              data: {
+                longFormId: longForm.id,
+                beat: m.beat,
+                title: m.title,
+                header,
+                description: m.rationale,
+                filePath: shortFilePath,
+                sourceStart: m.sourceStart,
+                sourceEnd: m.sourceEnd,
+                duration: result.duration,
+                subtitleStyle,
+                status: "ready",
+                accountId: longForm.accountId || null,
+              },
+            });
 
-        const row = await db.short.create({
-          data: {
-            longFormId: longForm.id,
-            beat: m.beat,
-            title: m.title,
-            header,
-            description: m.rationale,
-            filePath: shortFilePath,
-            sourceStart: m.sourceStart,
-            sourceEnd: m.sourceEnd,
-            duration: result.duration,
-            subtitleStyle,
-            status: "ready",
-            accountId: longForm.accountId || null,
-          },
-        });
-
-        return {
-          id: row.id,
-          beat: row.beat,
-          title: row.title,
-          header,
-          sourceStart: row.sourceStart,
-          sourceEnd: row.sourceEnd,
-          duration: result.duration,
-          fileSize: result.fileSize,
-          subtitleStyle: row.subtitleStyle,
-          status: "ready" as const,
-        };
-      } catch (e: any) {
-        console.error(`Failed to process moment ${m.beat}: ${e?.message}`);
-        return null;
-      }
-    });
-
-    const results = await Promise.all(processPromises);
-    const created = results.filter((r): r is NonNullable<typeof r> => r !== null);
+            return {
+              id: row.id,
+              beat: row.beat,
+              title: row.title,
+              header,
+              sourceStart: row.sourceStart,
+              sourceEnd: row.sourceEnd,
+              duration: result.duration,
+              fileSize: result.fileSize,
+              subtitleStyle: row.subtitleStyle,
+              status: "ready" as const,
+            };
+          } catch (e: any) {
+            console.error(`Failed to process moment ${m.beat}: ${e?.message}`);
+            return null;
+          }
+        }),
+      );
+      created.push(...batchResults.filter((r): r is NonNullable<typeof r> => r !== null));
+    }
 
     return NextResponse.json({
       created,

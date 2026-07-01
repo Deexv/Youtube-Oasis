@@ -299,19 +299,26 @@ export async function processShort(input: ProcessShortInput): Promise<ProcessSho
     filters.push(`subtitles='${escapedAssPath}'`);
   }
 
-  // 3. Add title header at the top
+  // 3. Add title header at the top (skip the fontfile on Windows — FFmpeg
+  //    uses the system default font, which is fine)
   if (title) {
     const escapedTitle = escapeDrawtext(title.slice(0, 50));
+    const isWin = process.platform === "win32";
+    const fontfileParam = isWin
+      ? "" // Windows: use system default font
+      : ":fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf";
     filters.push(
-      `drawtext=text='${escapedTitle}':fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:fontsize=48:fontcolor=white:borderw=3:bordercolor=black:x=(w-text_w)/2:y=60:box=1:boxcolor=black@0.5:boxborderw=10`,
+      `drawtext=text='${escapedTitle}'${fontfileParam}:fontsize=48:fontcolor=white:borderw=3:bordercolor=black:x=(w-text_w)/2:y=60:box=1:boxcolor=black@0.5:boxborderw=10`,
     );
   }
 
   // 4. Add duration display at the bottom-right
   const duration = endSec - startSec;
   const durationText = `${Math.floor(duration / 60)}:${String(Math.floor(duration % 60)).padStart(2, "0")}`;
+  const isWin2 = process.platform === "win32";
+  const durFontfile = isWin2 ? "" : ":fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf";
   filters.push(
-    `drawtext=text='${durationText}':fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf:fontsize=36:fontcolor=white:borderw=2:bordercolor=black:x=w-text_w-20:y=h-text_h-20`,
+    `drawtext=text='${durationText}'${durFontfile}:fontsize=36:fontcolor=white:borderw=2:bordercolor=black:x=w-text_w-20:y=h-text_h-20`,
   );
 
   const filterComplex = filters.join(",");

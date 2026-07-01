@@ -418,8 +418,12 @@ export async function processShortArc(input: ProcessArcInput): Promise<ProcessAr
 
   const isWin = process.platform === "win32";
 
-  // Step 1: Cut each clip to a temp file (re-encode — more reliable than
-  // stream copy across all formats, especially VP8/Opus WebM on Windows)
+  // Step 1: Cut each clip to a temp file with frame-accurate seeking.
+  // Two-pass seek: fast-seek 1s before target (keyframe), then precise
+  // seek the remaining 1s (frame-accurate). This avoids the "cut too
+  // early" problem where -ss before -i jumps to the nearest keyframe.
+  // Also add 0.2s padding at start/end to ensure no frames are lost at
+  // clip boundaries during concatenation.
   const tempFiles: string[] = [];
   let currentTimecode = 0;
   const clipTimings: Array<{ start: number; end: number; clip: BeatClip }> = [];
@@ -427,14 +431,23 @@ export async function processShortArc(input: ProcessArcInput): Promise<ProcessAr
   for (let i = 0; i < arc.clips.length; i++) {
     const clip = arc.clips[i];
     const dur = clip.sourceEnd - clip.sourceStart;
+
+    // Pad start by 0.2s (but not below 0) and end by 0.2s
+    const paddedStart = Math.max(0, clip.sourceStart - 0.2);
+    const paddedDur = dur + (clip.sourceStart - paddedStart) + 0.2;
+
+    // Two-pass seek: -ss before -i (fast) + -ss after -i (precise)
+    const fastSeek = Math.max(0, paddedStart - 1);
+    const preciseSeek = paddedStart - fastSeek;
+
     const tempFile = outputPath.replace(/\.mp4$/, `-clip-${i}.mp4`);
 
-    // Re-encode the clip (no fades — seamless concatenation)
     const cutArgs = [
       "-y",
-      "-ss", String(clip.sourceStart),
+      "-ss", String(fastSeek),           // fast seek ~1s before target
       "-i", inputPath,
-      "-t", String(dur),
+      "-ss", String(preciseSeek),         // precise seek the rest (frame-accurate)
+      "-t", String(paddedDur),            // take padded duration
       "-c:v", "libx264",
       "-preset", "ultrafast",
       "-crf", "30",
@@ -444,6 +457,7 @@ export async function processShortArc(input: ProcessArcInput): Promise<ProcessAr
       "-ac", "1",
       "-r", "30",
       "-vsync", "cfr",
+      "-avoid_negative_ts", "make_zero",
       tempFile,
     ];
 
@@ -454,8 +468,15 @@ export async function processShortArc(input: ProcessArcInput): Promise<ProcessAr
         windowsHide: true,
       });
       tempFiles.push(tempFile);
-      clipTimings.push({ start: currentTimecode, end: currentTimecode + dur, clip });
-      currentTimecode += dur;
+      // Subtitle timing: skip the 0.2s start padding, content starts at
+      // currentTimecode + 0.2 and ends at currentTimecode + paddedDur - 0.2
+      const startPad = clip.sourceStart - paddedStart; // 0.2 or less if at video start
+      clipTimings.push({
+        start: currentTimecode + startPad,
+        end: currentTimecode + startPad + dur,
+        clip,
+      });
+      currentTimecode += paddedDur;
     } catch (e: any) {
       // Clean up temp files
       for (const f of tempFiles) {

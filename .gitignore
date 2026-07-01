@@ -58,7 +58,4 @@ skills/
 examples/
 mini-services/
 next-env.d.ts
-
-# Sandbox helper scripts
-scripts/
 upload/

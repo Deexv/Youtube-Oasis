@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { db, dbFilePath } from "@/lib/db";
 import { existsSync } from "fs";
 import path from "path";
 
@@ -22,18 +22,13 @@ export async function GET() {
     return NextResponse.json({ ok: false, checks }, { status: 500 });
   }
 
-  // 2. Check the SQLite file exists
-  if (dbUrl.startsWith("file:")) {
-    const dbPath = dbUrl.slice("file:".length);
-    const fullPath = path.isAbsolute(dbPath)
-      ? dbPath
-      : path.join(process.cwd(), dbPath.replace(/^\.\//, ""));
-    const dbFileExists = existsSync(fullPath);
-
+  // 2. Check the SQLite file exists (using the resolved path from db.ts)
+  if (dbFilePath) {
+    const dbFileExists = existsSync(dbFilePath);
     if (!dbFileExists) {
       checks.database = {
         ok: false,
-        message: `Database file not found at ${fullPath}`,
+        message: `Database file not found at ${dbFilePath}`,
         fix: "Run: npm run db:push  (this creates the SQLite file and tables)",
       };
       return NextResponse.json({ ok: false, checks }, { status: 500 });

@@ -2,11 +2,24 @@ import { PrismaClient } from "@prisma/client";
 import path from "path";
 import { mkdirSync, existsSync } from "fs";
 
-// Resolve the SQLite database path relative to the project root.
-// This avoids issues with absolute paths from .env that might point to
-// a different machine's filesystem (e.g. when cloning across machines).
+/**
+ * Resolve the SQLite database path to an ABSOLUTE path.
+ *
+ * Prisma resolves `file:./db/custom.db` relative to the `prisma/` directory
+ * (where schema.prisma lives), NOT the project root. This means:
+ *   - `prisma db push` creates the DB at `prisma/db/custom.db`
+ *   - The runtime Prisma Client also looks at `prisma/db/custom.db`
+ *
+ * But our health check and setup scripts look at `project-root/db/custom.db`.
+ * To make all three agree, we resolve the path to absolute here, relative to
+ * the `prisma/` directory (matching Prisma's resolution).
+ *
+ * If the .env has an absolute path, we use it as-is.
+ * If the .env has a relative path, we resolve it relative to the prisma/ dir.
+ */
 function resolveDatabaseUrl(): string {
   const projectRoot = process.cwd();
+  const prismaDir = path.join(projectRoot, "prisma");
   let url = process.env.DATABASE_URL;
 
   // If no DATABASE_URL is set, default to a relative path
@@ -14,13 +27,9 @@ function resolveDatabaseUrl(): string {
     url = "file:./db/custom.db";
   }
 
-  // If the path is absolute and doesn't match this machine's project root,
-  // fall back to a relative path. This handles the case where someone
-  // cloned the repo and their .env still has the old machine's path
-  // (e.g. file:/home/z/my-project/db/custom.db on a Windows machine).
+  // If the path is absolute and doesn't match this machine, fall back
   if (url.startsWith("file:/")) {
     const dbPath = url.slice("file:".length);
-    // Normalize both paths for comparison
     const normalizedDbPath = path.resolve(dbPath);
     const normalizedProjectRoot = path.resolve(projectRoot);
     if (!normalizedDbPath.startsWith(normalizedProjectRoot)) {
@@ -28,14 +37,26 @@ function resolveDatabaseUrl(): string {
     }
   }
 
+  // Resolve relative paths to absolute, relative to the prisma/ directory
+  // (matching how Prisma resolves them)
+  if (url.startsWith("file:") && !url.startsWith("file:///")) {
+    let dbPath = url.slice("file:".length);
+
+    // If it's a relative path (starts with ./ or ../ or doesn't start with /)
+    if (!path.isAbsolute(dbPath)) {
+      // Prisma resolves relative paths from the prisma/ directory
+      dbPath = path.resolve(prismaDir, dbPath);
+      url = `file:${dbPath}`;
+    }
+  }
+
   // Ensure the db directory exists
   if (url.startsWith("file:")) {
-    const dbPath = url.slice("file:".length).replace(/^\.\//, "");
+    const dbPath = url.slice("file:".length);
     const dir = path.dirname(dbPath);
-    const fullDir = path.isAbsolute(dir) ? dir : path.join(projectRoot, dir);
-    if (!existsSync(fullDir)) {
+    if (!existsSync(dir)) {
       try {
-        mkdirSync(fullDir, { recursive: true });
+        mkdirSync(dir, { recursive: true });
       } catch {
         // Directory creation might fail — Prisma will throw a clearer error
       }
@@ -45,7 +66,7 @@ function resolveDatabaseUrl(): string {
   return url;
 }
 
-// Override DATABASE_URL at runtime so Prisma uses the resolved path.
+// Override DATABASE_URL at runtime so Prisma uses the resolved absolute path.
 // This must happen before the PrismaClient is instantiated.
 const resolvedUrl = resolveDatabaseUrl();
 if (process.env.DATABASE_URL !== resolvedUrl) {
@@ -63,3 +84,10 @@ export const db =
   });
 
 if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = db;
+
+/**
+ * Export the resolved DB file path for the health check.
+ */
+export const dbFilePath = resolvedUrl.startsWith("file:")
+  ? resolvedUrl.slice("file:".length)
+  : "";

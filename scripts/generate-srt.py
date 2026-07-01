@@ -18,8 +18,42 @@ Output: SRT file with word-level timestamps.
 
 import sys
 import os
+import subprocess
 import warnings
 warnings.filterwarnings("ignore")
+
+def ensure_faster_whisper():
+    """Ensure faster-whisper is installed. If not, install it via pip."""
+    try:
+        from faster_whisper import WhisperModel
+        return WhisperModel
+    except ImportError:
+        print("faster-whisper not found. Installing via pip...", file=sys.stderr)
+        # Get the pip executable for THIS Python
+        pip_cmd = [sys.executable, "-m", "pip", "install", "faster-whisper"]
+        print(f"Running: {' '.join(pip_cmd)}", file=sys.stderr)
+        try:
+            result = subprocess.run(
+                pip_cmd,
+                capture_output=True,
+                text=True,
+                timeout=300,  # 5 min timeout
+            )
+            if result.returncode != 0:
+                print(f"pip install failed:", file=sys.stderr)
+                print(result.stderr, file=sys.stderr)
+                print(f"\nTo fix manually, run:", file=sys.stderr)
+                print(f"  {sys.executable} -m pip install faster-whisper", file=sys.stderr)
+                sys.exit(1)
+            print("faster-whisper installed successfully.", file=sys.stderr)
+            # Now try the import again
+            from faster_whisper import WhisperModel
+            return WhisperModel
+        except subprocess.TimeoutExpired:
+            print("pip install timed out.", file=sys.stderr)
+            print(f"\nTo fix manually, run:", file=sys.stderr)
+            print(f"  {sys.executable} -m pip install faster-whisper", file=sys.stderr)
+            sys.exit(1)
 
 def format_timestamp(seconds: float) -> str:
     """Convert seconds to SRT timestamp format: HH:MM:SS,mmm"""
@@ -31,7 +65,7 @@ def format_timestamp(seconds: float) -> str:
 
 def main():
     if len(sys.argv) < 3:
-        print("Usage: python3 generate-srt.py <input-video> <output-srt> [model-size]")
+        print("Usage: python generate-srt.py <input-video> <output-srt> [model-size]")
         print("Models: tiny | base | small | medium | large-v3 (default: base)")
         sys.exit(1)
 
@@ -43,8 +77,10 @@ def main():
         print(f"Error: Input file not found: {input_path}", file=sys.stderr)
         sys.exit(1)
 
+    # Ensure faster-whisper is installed (auto-installs if missing)
+    WhisperModel = ensure_faster_whisper()
+
     print(f"Loading Whisper model '{model_size}'...", file=sys.stderr)
-    from faster_whisper import WhisperModel
 
     # Use int8 quantization for CPU — lowest memory footprint
     model = WhisperModel(model_size, device="cpu", compute_type="int8")

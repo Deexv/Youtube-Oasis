@@ -332,7 +332,15 @@ function ShortsWizard() {
                 if (data.llmWarning) {
                   toast.warning(data.llmWarning, { duration: 8000 });
                 }
+                if (data.errors && data.errors.length > 0) {
+                  // Show the first error as a toast so the user can see what failed
+                  toast.error(`First error: ${data.errors[0]}`, { duration: 15000 });
+                  console.error("All short processing errors:", data.errors);
+                }
                 toast.success(toastMsg, { id: t });
+              } else if (data.stage === "short_error") {
+                // Individual short failed — show as warning but continue
+                toast.warning(data.message, { duration: 10000 });
               } else if (data.stage === "error") {
                 throw new Error(data.message);
               }

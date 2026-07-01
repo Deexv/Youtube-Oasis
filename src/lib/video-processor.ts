@@ -344,12 +344,15 @@ export async function processShort(input: ProcessShortInput): Promise<ProcessSho
   ];
 
   try {
+    const isWin = process.platform === "win32";
     const { stderr } = await execFileAsync("ffmpeg", args, {
-      timeout: 300000, // 5 min timeout per short
-      maxBuffer: 1024 * 1024 * 10, // 10MB stderr buffer
+      timeout: 300000,
+      maxBuffer: 1024 * 1024 * 10,
+      windowsHide: true,
+      shell: isWin, // Use shell on Windows for paths with spaces
     });
 
-    // Get output file size
+    // Verify the output file exists
     const fileStat = await stat(outputPath);
     return {
       outputPath,
@@ -357,7 +360,9 @@ export async function processShort(input: ProcessShortInput): Promise<ProcessSho
       fileSize: fileStat.size,
     };
   } catch (e: any) {
-    throw new Error(`FFmpeg failed: ${e?.message || "unknown error"}. Stderr: ${e?.stderr?.slice(-500) || "none"}`);
+    // Include the full stderr (truncated to 1000 chars) so we can see the actual FFmpeg error
+    const stderrTail = e?.stderr?.slice(-1000) || e?.message || "no stderr";
+    throw new Error(`FFmpeg failed: ${stderrTail}`);
   }
 }
 

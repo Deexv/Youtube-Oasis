@@ -135,6 +135,7 @@ export async function POST(req: Request) {
 
           const BATCH_SIZE = 2;
           const created: any[] = [];
+          const errors: string[] = [];
           let processed = 0;
           const total = moments.length;
 
@@ -199,7 +200,15 @@ export async function POST(req: Request) {
                     status: "ready",
                   };
                 } catch (e: any) {
-                  console.error(`Failed: ${e?.message}`);
+                  const errMsg = `Short ${i + j + 1} (${m.beat}): ${e?.message || "unknown error"}`;
+                  console.error(errMsg);
+                  errors.push(errMsg);
+                  // Send the error to the client so the user can see what's failing
+                  send({
+                    stage: "short_error",
+                    message: errMsg,
+                    progress: 20 + Math.round((processed / total) * 75),
+                  });
                   return null;
                 }
               }),
@@ -209,7 +218,7 @@ export async function POST(req: Request) {
 
           send({
             stage: "done",
-            message: `Created ${created.length} shorts`,
+            message: `Created ${created.length} shorts${errors.length > 0 ? ` (${errors.length} failed)` : ""}`,
             progress: 100,
             created,
             totalFound: moments.length,
@@ -217,6 +226,7 @@ export async function POST(req: Request) {
             totalFailed: moments.length - created.length,
             llmProvider: detection.provider,
             llmWarning: detection.error,
+            errors: errors.length > 0 ? errors : undefined,
           });
         } catch (e: any) {
           send({ stage: "error", message: e?.message || "Unknown error", progress: 0 });

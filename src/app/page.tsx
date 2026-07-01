@@ -8,7 +8,14 @@ import { AppShell } from "@/components/app-shell";
 // hydrates. The dashboard is fully client-side anyway (charts, forms, etc).
 const Dashboard = dynamic(
   () => import("@/components/dashboard").then((m) => m.Dashboard),
-  { ssr: false },
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex h-96 items-center justify-center text-muted-foreground">
+        Loading dashboard…
+      </div>
+    ),
+  },
 );
 
 export default function Home() {

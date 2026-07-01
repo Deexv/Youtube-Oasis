@@ -38,7 +38,7 @@ YOUTUBE_REDIRECT_URI=http://localhost:3000/api/youtube/callback
 YOUTUBE_MOCK_MODE=false
 ```
 
-Restart the dev server: `pnpm run dev`.
+Restart the dev server: `npm run dev`.
 
 ## Step 4 — Add a YouTube account (in-app)
 

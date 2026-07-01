@@ -8,7 +8,7 @@
 
 ## What changed since v0.1
 
-- Migrated from bun to **pnpm** (pnpm-lock.yaml, pnpm-workspace.yaml, scripts updated)
+- Migrated from bun to **npm** (package-lock.json, package.json, scripts updated)
 - LLM models now configurable via env (`ZAI_MODEL`, `GROQ_MODEL`, `GEMINI_MODEL`, `ANTHROPIC_MODEL`)
 - Real file upload via multipart/form-data with live progress
 - Multi-account YouTube OAuth flow (add accounts via Google login, no manual token copy)
@@ -18,19 +18,19 @@
 ## Developer personas (updated)
 
 ### P1 — Solo YouTuber who codes
-- Can now `pnpm install && pnpm run dev` — standard Node workflow.
+- Can now `npm install && npm run dev` — standard Node workflow.
 - Can swap LLM models without code changes (e.g. `GROQ_MODEL=llama-3.1-8b-instant`).
 - Can connect YouTube accounts by clicking a button — no more manual OAuth playground.
 - **Satisfaction**: high.
 
 ### P2 — Open-source contributor
-- pnpm is the standard package manager for most OSS projects — lower friction than bun.
-- `pnpm-workspace.yaml` documents the build-script allowlist explicitly.
+- npm is the standard package manager for most OSS projects — lower friction than bun.
+- `package.json` documents the build-script allowlist explicitly.
 - The new `YouTubeAccount` model is well-documented in ARCHITECTURE.md.
 - **Satisfaction**: high.
 
 ### P3 — Self-hoster
-- pnpm is available on all Linux distros via `npm install -g pnpm`.
+- npm is available on all Linux distros via Node.js installation.
 - The `uploads/` directory is gitignored and documented.
 - The OAuth redirect URI is configurable via `YOUTUBE_REDIRECT_URI`.
 - **Satisfaction**: high.
@@ -39,14 +39,14 @@
 
 | Dimension | v0.1 | v0.2 | Notes |
 |-----------|------|------|-------|
-| Time to first run | 6/10 | 8/10 | pnpm is more familiar; README updated |
+| Time to first run | 6/10 | 8/10 | npm is more familiar; README updated |
 | Time to first real YouTube post | 5/10 | 9/10 | OAuth flow is now one click |
 | LLM flexibility | 5/10 | 9/10 | Models swappable via env |
 | Upload experience | 2/10 | 9/10 | Real file upload with progress |
 | Multi-account support | 0/10 | 9/10 | Clever color-coded selector |
 | Code navigability | 7/10 | 8/10 | Dynamic imports documented |
 | Test confidence | 2/10 | 2/10 | Still no tests (deferred) |
-| Deployability | 4/10 | 5/10 | pnpm is more deploy-friendly |
+| Deployability | 4/10 | 5/10 | npm is more deploy-friendly |
 | **Overall DX** | **5.0/10** | **7.4/10** | |
 
 ## Remaining DX friction
@@ -57,8 +57,8 @@ Still no automated tests. The scheduler logic (`pickRandomTimeInWindow`, `findNe
 ### F2 [MEDIUM] — No Dockerfile
 Self-hosters still need to figure out the deployment manually. **Fix**: add a Dockerfile + `docs/deploy.md`.
 
-### F3 [LOW] — pnpm-workspace.yaml onlyBuiltDependencies
-The `onlyBuiltDependencies` list is necessary because pnpm 10+ blocks postinstall scripts. A new contributor adding a dependency with a build script will need to add it to this list. This is documented in the file but could be clearer in CONTRIBUTING.md.
+### F3 [LOW] — package.json npm ignores build scripts by default
+The `npm ignores build scripts by default` list is necessary because npm 10+ blocks postinstall scripts. A new contributor adding a dependency with a build script will need to add it to this list. This is documented in the file but could be clearer in CONTRIBUTING.md.
 
 ### F4 [LOW] — Dynamic imports make stack traces harder to read
 The LLM and YouTube libs now use `await import(...)` to save memory. Stack traces from errors inside these functions will show the dynamic import wrapper. Acceptable trade-off.
@@ -67,7 +67,7 @@ The LLM and YouTube libs now use `await import(...)` to save memory. Stack trace
 
 - [ ] **T1 (P1, carried)** — Tests — add unit tests for scheduler.ts
 - [ ] **T2 (P2, carried)** — Deploy — add Dockerfile + docs/deploy.md
-- [ ] **T3 (P3)** — Docs — mention `onlyBuiltDependencies` in CONTRIBUTING.md
+- [ ] **T3 (P3)** — Docs — mention `npm ignores build scripts by default` in CONTRIBUTING.md
 - [ ] **T4 (P3)** — Docs — document the dynamic import pattern in ARCHITECTURE.md
 
 ## VERDICT

@@ -2,7 +2,7 @@
 
 Shorts Pilot is a single-user, self-hosted YouTube scheduler. It runs as a
 Next.js 16 app with an embedded SQLite database. All YouTube and LLM calls
-happen server-side. Package manager: **pnpm**.
+happen server-side. Package manager: **npm**.
 
 **v0.2 highlights**: multi-account YouTube OAuth, real file uploads, per-provider
 LLM model overrides, dynamic SDK imports for memory efficiency.

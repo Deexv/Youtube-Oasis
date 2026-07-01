@@ -43,11 +43,11 @@ Set keys for Z.AI (GLM-4.6), Groq (Llama 3.3 70B), Gemini (2.5 Flash), and Claud
 ## Quickstart
 
 ```bash
-# 1. Install dependencies (pnpm required)
-pnpm install
+# 1. Install dependencies (npm required)
+npm install
 
 # 2. Set up the database
-pnpm run db:push
+npm run db:push
 
 # 3. Configure your environment
 cp .env.example .env
@@ -56,7 +56,7 @@ cp .env.example .env
 #   → or set YOUTUBE_MOCK_MODE=true for local dev without YouTube
 
 # 4. Start the dev server
-pnpm run dev
+npm run dev
 ```
 
 Open `http://localhost:3000` — the app runs on port 3000.
@@ -154,7 +154,7 @@ See [`docs/youtube-oauth.md`](docs/youtube-oauth.md) for the full OAuth setup wa
 ## Tech stack
 
 - **Framework**: Next.js 16 (App Router) + TypeScript 5
-- **Package manager**: pnpm
+- **Package manager**: npm
 - **UI**: Tailwind CSS 4 + shadcn/ui (New York style) + @efferd/dashboard-3 block
 - **Database**: Prisma ORM + SQLite
 - **YouTube**: `googleapis` (YouTube Data API v3 — `videos.insert` + `publishAt`)
@@ -206,11 +206,11 @@ See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the full request lifecycle.
 ## Development
 
 ```bash
-pnpm install       # Install dependencies
-pnpm run dev       # Start dev server (port 3000)
-pnpm run lint      # ESLint
-pnpm run db:push   # Push schema changes to SQLite
-pnpm run db:generate  # Regenerate Prisma client
+npm install       # Install dependencies
+npm run dev       # Start dev server (port 3000)
+npm run lint      # ESLint
+npm run db:push   # Push schema changes to SQLite
+npm run db:generate  # Regenerate Prisma client
 ```
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) for conventions.

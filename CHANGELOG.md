@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] — 2026-07-01
+
+### Changed
+- **Migrated from pnpm to npm** — switched the package manager from pnpm to npm (the Node.js default). Removed `pnpm-lock.yaml` and `pnpm-workspace.yaml`, added `package-lock.json`. All docs updated to use `npm install` / `npm run dev`.
+- **Cross-platform dev script** — the `dev` script now uses `cross-env` to set `NODE_OPTIONS` so it works on Windows, macOS, and Linux without shell-specific syntax.
+- Added `cross-env` as a dev dependency.
+
+### Removed
+- `pnpm-lock.yaml`
+- `pnpm-workspace.yaml`
+- `.npmrc`
+
 ## [0.2.0] — 2026-07-01
 
 ### Added
@@ -21,17 +33,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `FileUploader` component with drag-and-drop + live progress.
 - `YouTubeAccountSelector` component with colored confirmation banner.
 - `StepProgress` component for multi-step operation visibility.
-- `pnpm-workspace.yaml` with `onlyBuiltDependencies` allowlist.
+- `package.json` with `npm ignores build scripts by default` allowlist.
 
 ### Changed
-- **Migrated from bun to pnpm** — `pnpm install && pnpm run dev`. Removed `bun.lock`, added `pnpm-lock.yaml`.
+- **Migrated from bun to npm** — `npm install && npm run dev`. Removed `bun.lock`, added `package-lock.json`.
 - **Settings "Z.AI API key" card → "API keys"** — now covers all 4 providers (Z.AI, Groq, Gemini, Claude) with model names + configured status.
 - **Heavy SDK imports are now dynamic** — `googleapis`, `@google/genai`, `@anthropic-ai/sdk`, `openai`, `z-ai-web-dev-sdk` are loaded lazily inside the functions that use them, saving ~500 MB of server memory.
 - **Dashboard SSR disabled** — the Dashboard is loaded via `dynamic(..., { ssr: false })` to avoid hydration mismatches caused by browser extensions (DarkReader).
 - **YouTube default mode is live** — `YOUTUBE_MOCK_MODE=false` by default. Mock mode must be opted into explicitly.
 - **OAuth setup is now one-click** — the old manual OAuth Playground flow is replaced by the in-app "Add YouTube account" button.
 - `LongFormVideo` and `Short` models now have an `accountId` field linking to `YouTubeAccount`.
-- `package.json` scripts updated for pnpm (removed `bun` from `start` script, removed `tee dev.log`).
+- `package.json` scripts updated for npm (removed `bun` from `start` script, removed `tee dev.log`).
 
 ### Fixed
 - **False success toast bug** (from v0.1) — the New long-form dialog now correctly shows an error toast when YouTube upload fails, instead of falsely saying "scheduled on YouTube".

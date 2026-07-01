@@ -4,7 +4,7 @@
 > 0-10, explains what would make it a 10, then prescribes the fix.
 
 **Project**: Shorts Pilot — YouTube long-form + AI shorts scheduler
-**Version**: 0.2.0 (multi-account, real uploads, pnpm, model env vars)
+**Version**: 0.2.0 (multi-account, real uploads, npm, model env vars)
 **Date**: 2026-07-01
 
 ---

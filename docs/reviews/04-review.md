@@ -4,7 +4,7 @@
 
 **Project**: Shorts Pilot v0.2
 **Date**: 2026-07-01
-**Diff scope**: v0.1 → v0.2 (multi-account, real uploads, pnpm, model env vars)
+**Diff scope**: v0.1 → v0.2 (multi-account, real uploads, npm, model env vars)
 
 ## Summary
 
@@ -74,9 +74,9 @@
 **File**: `src/lib/llm.ts`, `src/lib/youtube.ts`
 **Note**: All heavy SDK imports (`googleapis`, `@google/genai`, `@anthropic-ai/sdk`, `openai`, `z-ai-web-dev-sdk`) are now `await import(...)` inside the functions that use them. This saves ~500MB of memory at startup. Documented in ARCHITECTURE.md.
 
-### I2 — pnpm-workspace.yaml onlyBuiltDependencies
-**File**: `pnpm-workspace.yaml`
-**Note**: pnpm 10+ blocks postinstall scripts by default. The allowlist includes prisma, sharp, @google/genai, etc. This is the correct configuration.
+### I2 — package.json npm ignores build scripts by default
+**File**: `package.json`
+**Note**: npm 10+ blocks postinstall scripts by default. The allowlist includes prisma, sharp, @google/genai, etc. This is the correct configuration.
 
 ### I3 — SSR disabled for Dashboard
 **File**: `src/app/page.tsx`
@@ -103,7 +103,7 @@
 
 ## Fixes applied in v0.2
 
-1. **pnpm migration** — bun.lock removed, pnpm-lock.yaml generated, scripts updated
+1. **npm migration** — bun.lock removed, package-lock.json generated, scripts updated
 2. **Model env vars** — `ZAI_MODEL`, `GROQ_MODEL`, `GEMINI_MODEL`, `ANTHROPIC_MODEL` with defaults
 3. **Real file upload** — `/api/upload` route with multipart/form-data, `uploads/` dir gitignored
 4. **Multi-account OAuth** — `/api/youtube/auth` + `/api/youtube/callback` + `YouTubeAccount` model

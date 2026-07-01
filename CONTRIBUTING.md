@@ -7,19 +7,14 @@ process is lightweight.
 
 ### Package manager
 
-This project uses **pnpm**. Don't use npm or bun — the lockfile is
-`pnpm-lock.yaml` and the build-script allowlist is in `pnpm-workspace.yaml`.
+This project uses **npm**. The lockfile is `package-lock.json`.
 
 ```bash
-pnpm install
-pnpm run dev
-pnpm run lint
-pnpm run db:push
+npm install
+npm run dev
+npm run lint
+npm run db:push
 ```
-
-If you add a dependency with a postinstall script (e.g. a native binding),
-add it to `onlyBuiltDependencies` in `pnpm-workspace.yaml` so pnpm 10+
-allows it to run.
 
 ### Branch + commit
 

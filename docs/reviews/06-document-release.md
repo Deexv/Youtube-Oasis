@@ -24,7 +24,7 @@
   detect moments → generate headers → schedule on YouTube.
 
 ### For developers
-- **pnpm support** — migrated from bun to pnpm (the standard Node package
+- **npm support** — migrated from bun to npm (the standard Node package
   manager for most teams).
 - **Per-provider model override** — set `ZAI_MODEL`, `GROQ_MODEL`,
   `GEMINI_MODEL`, or `ANTHROPIC_MODEL` in `.env` to use a different model
@@ -62,15 +62,15 @@ The README now targets these search intents:
 | "Real video upload with progress bars" | Yes — names the UX improvement | ✅ |
 | "Multiple YouTube channels" with color-coded selector | Yes — names the safety feature | ✅ |
 | "Per-provider model override" | Yes — names the env var | ✅ |
-| "pnpm support" | Yes — names the tool | ✅ |
+| "npm support" | Yes — names the tool | ✅ |
 
 ## Documentation coverage
 
 | Document | Status | Updated for v0.2? |
 |----------|--------|-------------------|
-| `README.md` | ✅ | Yes — pnpm quickstart, multi-account section, SEO keywords |
+| `README.md` | ✅ | Yes — npm quickstart, multi-account section, SEO keywords |
 | `ARCHITECTURE.md` | ✅ | Yes — YouTubeAccount model, OAuth flow, dynamic imports |
-| `CONTRIBUTING.md` | ✅ | Yes — pnpm commands, onlyBuiltDependencies note |
+| `CONTRIBUTING.md` | ✅ | Yes — npm commands, npm ignores build scripts by default note |
 | `CHANGELOG.md` | ✅ | Yes — v0.2.0 section added |
 | `.env.example` | ✅ | Yes — model env vars, redirect URI, upload limit |
 | `docs/youtube-oauth.md` | ✅ | Yes — updated for the one-click flow (no more playground) |
@@ -90,7 +90,7 @@ The diagram in `ARCHITECTURE.md` was updated to include:
 ## Release notes (for the GitHub release body)
 
 ```markdown
-# Shorts Pilot v0.2.0 — Multi-account, real uploads, pnpm
+# Shorts Pilot v0.2.0 — Multi-account, real uploads, npm
 
 The biggest update yet: connect multiple YouTube channels with one-click
 Google OAuth, upload videos with drag-and-drop + live progress bars, and
@@ -120,10 +120,10 @@ swap LLM models without touching code.
 - Defaults: GLM-4.6, Llama 3.3 70B, Gemini 2.5 Flash, Claude Haiku 4.5
 - Rotation still works the same (set ≥2 keys, `LLM_ROTATE=true` by default)
 
-### pnpm migration
-- Switched from bun to pnpm (the standard for most teams)
-- `pnpm install && pnpm run dev`
-- `pnpm-workspace.yaml` documents the build-script allowlist
+### npm migration
+- Switched from bun to npm (the standard for most teams)
+- `npm install && npm run dev`
+- `package.json` documents the build-script allowlist
 
 ### Settings improvements
 - "Z.AI API key" card renamed to "API keys" (now covers all 4 providers)
@@ -133,7 +133,7 @@ swap LLM models without touching code.
 
 ## Tech stack
 Next.js 16, TypeScript, Tailwind, shadcn/ui, Prisma + SQLite, googleapis,
-z-ai-web-dev-sdk, openai (Groq), @google/genai, @anthropic-ai/sdk, pnpm.
+z-ai-web-dev-sdk, openai (Groq), @google/genai, @anthropic-ai/sdk, npm.
 
 ## Reviews
 See `docs/reviews/` for the full gstack review chain (plan-design-review,
@@ -141,10 +141,10 @@ design-review, plan-devex-review, review, qa, document-release).
 
 ## Upgrade from v0.1
 1. `git pull`
-2. `pnpm install` (replaces `bun install`)
+2. `npm install` (replaces `bun install`)
 3. `cp .env.example .env` and fill in the new vars (model overrides are optional)
-4. `pnpm run db:push` (adds the YouTubeAccount table)
-5. `pnpm run dev`
+4. `npm run db:push` (adds the YouTubeAccount table)
+5. `npm run dev`
 6. Go to Settings → YouTube accounts → Add account (one-click OAuth)
 
 ## License
@@ -154,7 +154,7 @@ MIT
 ## PR body (documentation debt summary)
 
 ```
-## v0.2.0 — Multi-account, real uploads, pnpm
+## v0.2.0 — Multi-account, real uploads, npm
 
 ### Added
 - YouTubeAccount model + Google OAuth login flow (one-click, no manual tokens)
@@ -163,16 +163,16 @@ MIT
 - Per-provider LLM model override env vars (ZAI_MODEL, GROQ_MODEL, etc.)
 - Upload limit configurable in dashboard Settings
 - Multi-account selector with color-coded anti-mistake banner
-- pnpm support (pnpm-workspace.yaml, pnpm-lock.yaml)
+- npm support (package.json, package-lock.json)
 
 ### Changed
-- Migrated from bun to pnpm
+- Migrated from bun to npm
 - Settings "Z.AI API key" card → "API keys" (covers all 4 providers)
 - Heavy SDK imports (googleapis, LLM SDKs) are now dynamic to save ~500MB memory
 - Dashboard SSR disabled to avoid hydration crashes from browser extensions
 
 ### Documentation
-- README updated with pnpm quickstart, multi-account section, SEO keywords
+- README updated with npm quickstart, multi-account section, SEO keywords
 - ARCHITECTURE.md updated with YouTubeAccount model + OAuth flow
 - docs/youtube-oauth.md updated for the one-click flow
 - docs/reviews/ — 5 new gstack review files for v0.2

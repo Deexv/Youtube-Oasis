@@ -418,9 +418,10 @@ export async function processShortArc(input: ProcessArcInput): Promise<ProcessAr
 
   const isWin = process.platform === "win32";
 
-  // Step 1: Cut each clip to a temp file (stream copy = no re-encode = fast)
+  // Step 1: Cut each clip to a temp file (re-encode — more reliable than
+  // stream copy across all formats, especially VP8/Opus WebM on Windows)
   const tempFiles: string[] = [];
-  let currentTimecode = 0; // running timecode in the merged video
+  let currentTimecode = 0;
   const clipTimings: Array<{ start: number; end: number; clip: BeatClip }> = [];
 
   for (let i = 0; i < arc.clips.length; i++) {
@@ -428,13 +429,20 @@ export async function processShortArc(input: ProcessArcInput): Promise<ProcessAr
     const dur = clip.sourceEnd - clip.sourceStart;
     const tempFile = outputPath.replace(/\.mp4$/, `-clip-${i}.mp4`);
 
+    // Re-encode the clip (not stream copy) — stream copy fails on WebM/VP8
+    // with "Invalid argument" on Windows
     const cutArgs = [
       "-y",
       "-ss", String(clip.sourceStart),
       "-i", inputPath,
       "-t", String(dur),
-      "-c", "copy",
-      "-avoid_negative_ts", "make_zero",
+      "-c:v", "libx264",
+      "-preset", "ultrafast",
+      "-crf", "30",
+      "-pix_fmt", "yuv420p",
+      "-c:a", "aac",
+      "-b:a", "96k",
+      "-ac", "1",
       tempFile,
     ];
 
@@ -452,7 +460,8 @@ export async function processShortArc(input: ProcessArcInput): Promise<ProcessAr
       for (const f of tempFiles) {
         try { await unlink(f); } catch {}
       }
-      throw new Error(`Failed to cut clip ${i + 1} (${clip.beat}): ${e?.stderr?.slice(-300) || e?.message}`);
+      const errDetail = e?.stderr?.slice(-500) || e?.message || "unknown";
+      throw new Error(`Failed to cut clip ${i + 1} (${clip.beat}): ${errDetail}`);
     }
   }
 

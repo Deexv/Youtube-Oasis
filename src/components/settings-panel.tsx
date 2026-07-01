@@ -31,6 +31,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { PROVIDER_LABELS, type ProviderName } from "@/lib/llm-shared";
+import { YouTubeSetupWizard } from "@/components/youtube-setup-wizard";
 
 type Settings = {
   longFormPerDay: number;
@@ -84,6 +85,7 @@ export function SettingsPanel() {
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<Status | null>(null);
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [oauthConfigured, setOauthConfigured] = useState<boolean | null>(null);
 
   useEffect(() => {
     fetch("/api/settings")
@@ -93,6 +95,7 @@ export function SettingsPanel() {
       .then((r) => r.json())
       .then((d) => setStatus(d));
     refreshAccounts();
+    refreshOAuthConfig();
   }, []);
 
   function refreshAccounts() {
@@ -100,6 +103,13 @@ export function SettingsPanel() {
       .then((r) => r.json())
       .then((d) => setAccounts(d.accounts ?? []))
       .catch(() => undefined);
+  }
+
+  function refreshOAuthConfig() {
+    fetch("/api/youtube/oauth-config")
+      .then((r) => r.json())
+      .then((d) => setOauthConfigured(d.configured))
+      .catch(() => setOauthConfigured(false));
   }
 
   function update<K extends keyof Settings>(k: K, v: Settings[K]) {
@@ -344,12 +354,16 @@ export function SettingsPanel() {
           {/* Status banner */}
           <div className="flex flex-wrap items-center gap-2">
             <Badge
-              variant={status?.youtubeMockMode ? "secondary" : status?.youtubeConfigured ? "default" : "destructive"}
+              variant={status?.youtubeMockMode ? "secondary" : oauthConfigured ? "default" : "destructive"}
               className="gap-1"
             >
-              {status?.youtubeLabel}
+              {status?.youtubeMockMode
+                ? "Mock mode"
+                : oauthConfigured
+                  ? "Live mode"
+                  : "Not configured"}
             </Badge>
-            {status?.youtubeConfigured && !status.youtubeMockMode && (
+            {oauthConfigured && !status?.youtubeMockMode && (
               <Badge variant="outline" className="gap-1">
                 <CheckCircleIcon className="size-3" />
                 OAuth ready
@@ -358,39 +372,35 @@ export function SettingsPanel() {
             <span className="text-xs text-muted-foreground">
               {status?.youtubeMockMode
                 ? "Mock mode returns fake video IDs without uploading."
-                : status?.youtubeConfigured
-                  ? "Real uploads via YouTube Data API v3 (videos.insert + publishAt)."
-                  : "Set YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET in .env, then add an account below."}
+                : oauthConfigured
+                  ? "Real uploads via YouTube Data API v3. Click \"Add YouTube account\" below to connect a channel."
+                  : "Complete the one-time setup below to enable \"Login with Google\"."}
             </span>
           </div>
 
           <Separator />
 
-          {/* Accounts list */}
-          {accounts.length === 0 ? (
+          {/* Setup wizard (shows when OAuth not configured) */}
+          {oauthConfigured === false && (
+            <YouTubeSetupWizard onConfigured={() => { refreshOAuthConfig(); refreshAccounts(); }} />
+          )}
+
+          {/* Accounts list (shows when OAuth IS configured) */}
+          {oauthConfigured && accounts.length === 0 ? (
             <div className="rounded-md border border-dashed p-6 text-center">
               <YoutubeIcon className="mx-auto size-8 text-muted-foreground" />
-              <p className="mt-2 text-sm font-medium">No YouTube accounts connected</p>
+              <p className="mt-2 text-sm font-medium">No YouTube accounts connected yet</p>
               <p className="mb-3 text-xs text-muted-foreground">
-                Connect an account to start scheduling videos. You'll be redirected to Google to grant the YouTube upload scope.
+                Click below to log in with Google and connect your YouTube channel.
               </p>
-              {status?.youtubeConfigured ? (
-                <Button asChild size="sm" className="gap-1.5">
-                  <Link href="/api/youtube/auth?returnTo=/settings">
-                    <PlusIcon className="size-4" />
-                    Add YouTube account
-                  </Link>
-                </Button>
-              ) : (
-                <p className="text-xs text-muted-foreground">
-                  Set <code className="rounded bg-muted px-1">YOUTUBE_CLIENT_ID</code> and{" "}
-                  <code className="rounded bg-muted px-1">YOUTUBE_CLIENT_SECRET</code> in{" "}
-                  <code className="rounded bg-muted px-1">.env</code> first. See{" "}
-                  <Link href="#" className="underline">docs/youtube-oauth.md</Link>.
-                </p>
-              )}
+              <Button asChild size="sm" className="gap-1.5">
+                <Link href="/api/youtube/auth?returnTo=/settings">
+                  <PlusIcon className="size-4" />
+                  Connect with Google
+                </Link>
+              </Button>
             </div>
-          ) : (
+          ) : oauthConfigured && accounts.length > 0 ? (
             <ul className="divide-y divide-border rounded-md border">
               {accounts.map((a) => (
                 <li key={a.id} className="flex items-center gap-3 p-3">
@@ -433,13 +443,13 @@ export function SettingsPanel() {
                 </li>
               ))}
             </ul>
-          )}
+          ) : null}
 
-          {accounts.length > 0 && status?.youtubeConfigured && (
+          {oauthConfigured && accounts.length > 0 && (
             <Button asChild variant="outline" size="sm" className="gap-1.5">
               <Link href="/api/youtube/auth?returnTo=/settings">
                 <PlusIcon className="size-4" />
-                Add another account
+                Connect another Google account
               </Link>
             </Button>
           )}

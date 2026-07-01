@@ -63,11 +63,19 @@ Open `http://localhost:3000` — the app runs on port 3000.
 
 ### Connect a YouTube account
 
-1. Go to **Settings → YouTube accounts → Add account**.
-2. You'll be redirected to Google's OAuth consent screen.
-3. Grant the `youtube.upload` scope.
-4. Google redirects back — the account is stored automatically with a distinct color.
-5. Repeat for additional channels.
+1. Go to the **Settings** tab → **YouTube accounts** card.
+2. If OAuth isn't configured yet, a **4-step setup wizard** appears:
+   - Click the link to open Google Cloud Console
+   - Enable the YouTube Data API v3
+   - Create an OAuth client ID (Web application type)
+   - Copy the redirect URI from the wizard into Google Cloud
+   - Paste your Client ID + Client Secret into the wizard and click **Save**
+3. Once saved, click **Connect with Google**.
+4. You'll be redirected to Google's OAuth consent screen — log in and grant the `youtube.upload` scope.
+5. Google redirects back — your channel is stored with a distinct color.
+6. Repeat for additional channels.
+
+No `.env` editing required — the credentials are stored in the app's database. See [`docs/youtube-oauth.md`](docs/youtube-oauth.md) for details.
 
 ### Upload your first long-form video
 

@@ -15,6 +15,10 @@
 // the heavy SDK at module evaluation time (saves ~300MB memory).
 import { Readable } from "stream";
 import { db } from "@/lib/db";
+import {
+  getYouTubeOAuthSettings,
+  type YouTubeOAuthSettings,
+} from "@/lib/youtube-oauth-settings";
 
 export {
   youtubeWatchUrl,
@@ -47,12 +51,29 @@ export function isMockMode(): boolean {
   return v === "true";
 }
 
+/**
+ * Synchronous check — only checks env vars. Used by the status API for a
+ * quick response. For the full check (including DB-stored credentials),
+ * use `isYouTubeConfiguredAsync()`.
+ */
 export function isYouTubeConfigured(): boolean {
   return Boolean(
     process.env.YOUTUBE_CLIENT_ID && process.env.YOUTUBE_CLIENT_SECRET,
   );
 }
 
+/**
+ * Async check — checks both env vars AND DB-stored credentials (set via
+ * the in-app setup wizard). This is the authoritative check.
+ */
+export async function isYouTubeConfiguredAsync(): Promise<boolean> {
+  return (await getYouTubeOAuthSettings()) !== null;
+}
+
+/**
+ * Sync getter for the redirect URI. Uses env or the default. For the
+ * DB-stored redirect URI, use `getYouTubeOAuthSettings()` directly.
+ */
 export function getRedirectUri(): string {
   return (
     process.env.YOUTUBE_REDIRECT_URI ||
@@ -84,16 +105,17 @@ const SCOPES = [
  * to /api/youtube/callback with an authorization code.
  */
 export async function getAuthUrl(state?: string): Promise<string> {
-  if (!isYouTubeConfigured()) {
+  const settings = await getYouTubeOAuthSettings();
+  if (!settings) {
     throw new Error(
-      "YouTube OAuth is not configured. Set YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET in .env. See docs/youtube-oauth.md.",
+      "YouTube OAuth is not configured. Either set YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET in .env, or use the in-app setup wizard in Settings → YouTube accounts.",
     );
   }
   const { google } = await import("googleapis");
   const oauth2 = new google.auth.OAuth2(
-    process.env.YOUTUBE_CLIENT_ID!,
-    process.env.YOUTUBE_CLIENT_SECRET!,
-    getRedirectUri(),
+    settings.clientId,
+    settings.clientSecret,
+    settings.redirectUri,
   );
   return oauth2.generateAuthUrl({
     access_type: "offline",
@@ -109,14 +131,15 @@ export async function getAuthUrl(state?: string): Promise<string> {
  * YouTubeAccount row. Returns the new account.
  */
 export async function exchangeCodeAndCreateAccount(code: string) {
-  if (!isYouTubeConfigured()) {
+  const settings = await getYouTubeOAuthSettings();
+  if (!settings) {
     throw new Error("YouTube OAuth is not configured.");
   }
   const { google } = await import("googleapis");
   const oauth2 = new google.auth.OAuth2(
-    process.env.YOUTUBE_CLIENT_ID!,
-    process.env.YOUTUBE_CLIENT_SECRET!,
-    getRedirectUri(),
+    settings.clientId,
+    settings.clientSecret,
+    settings.redirectUri,
   );
   const { tokens } = await oauth2.getToken(code);
   if (!tokens.refresh_token) {
@@ -222,11 +245,17 @@ async function getOAuth2ClientForAccount(accountId: string) {
     throw new Error(`YouTube account not found: ${accountId}`);
   }
 
+  const settings = await getYouTubeOAuthSettings();
+  if (!settings) {
+    throw new Error(
+      "YouTube OAuth is not configured. Use the in-app setup wizard in Settings, or set YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET in .env.",
+    );
+  }
   const { google } = await import("googleapis");
   const oauth2 = new google.auth.OAuth2(
-    process.env.YOUTUBE_CLIENT_ID!,
-    process.env.YOUTUBE_CLIENT_SECRET!,
-    getRedirectUri(),
+    settings.clientId,
+    settings.clientSecret,
+    settings.redirectUri,
   );
   oauth2.setCredentials({
     refresh_token: account.refreshToken,
@@ -274,9 +303,9 @@ export async function scheduleOnYouTube(
     };
   }
 
-  if (!isYouTubeConfigured()) {
+  if (!(await isYouTubeConfiguredAsync())) {
     throw new Error(
-      "YouTube is not configured. Set YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET in .env, or set YOUTUBE_MOCK_MODE=true. See docs/youtube-oauth.md.",
+      "YouTube OAuth is not configured. Use the in-app setup wizard in Settings, or set YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET in .env. See docs/youtube-oauth.md.",
     );
   }
 

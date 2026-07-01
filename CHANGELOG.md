@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.2] — 2026-07-01
+
+### Added
+- **In-app YouTube OAuth setup wizard** — users no longer need to edit `.env` to configure Google OAuth. The Settings tab now shows a 4-step wizard with direct links to Google Cloud Console, a copy-paste redirect URI, and a form to paste the Client ID + Secret. Credentials are stored in the app's SQLite database.
+- New `YouTubeSetupWizard` component with step-by-step instructions and credential input.
+- New `/api/youtube/oauth-config` API route (GET / POST / DELETE) for managing OAuth credentials from the UI.
+- New `src/lib/youtube-oauth-settings.ts` — reads OAuth credentials from the DB first, falls back to env vars.
+- `isYouTubeConfiguredAsync()` — authoritative async check that looks at both DB and env.
+
+### Changed
+- `youtube.ts` now reads OAuth client credentials from the DB (set via the wizard) instead of only from env vars. Env vars still work as a fallback for CI/CD.
+- The Settings "YouTube accounts" card shows the setup wizard when OAuth isn't configured, and the "Connect with Google" button when it is.
+- The account selector in the Create tab now points users to Settings if no account is connected.
+- Status API (`/api/status`) and healthcheck (`/api`) now use the async check so they report `configured: true` when credentials are in the DB.
+
+### Removed
+- The old "Set YOUTUBE_CLIENT_ID in .env first" error message is replaced by the in-app wizard.
+
 ## [0.2.1] — 2026-07-01
 
 ### Changed

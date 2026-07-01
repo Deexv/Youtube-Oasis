@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { isYouTubeConfigured, isMockMode } from "@/lib/youtube";
+import { isYouTubeConfiguredAsync, isMockMode } from "@/lib/youtube";
 import { getConfiguredProviders } from "@/lib/llm";
 
 /**
@@ -20,7 +20,7 @@ export async function GET() {
   return NextResponse.json({
     ok: dbOk,
     db: dbOk,
-    youtube: isYouTubeConfigured(),
+    youtube: await isYouTubeConfiguredAsync(),
     youtubeMockMode: isMockMode(),
     llm: { configured: getConfiguredProviders() },
     timestamp: new Date().toISOString(),

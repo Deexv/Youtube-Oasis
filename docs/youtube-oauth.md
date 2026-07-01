@@ -1,13 +1,47 @@
 # YouTube OAuth setup
 
-Shorts Pilot v0.2 introduced a **one-click Google login flow** — you no
-longer need to use the OAuth Playground or manually copy refresh tokens.
-Just click "Add YouTube account" in the Settings tab and log in to Google.
+Shorts Pilot includes an **in-app setup wizard** — you don't need to edit
+`.env` or use the OAuth Playground. Just open the Settings tab, follow the
+4-step wizard, paste your Google OAuth credentials, and click "Connect with
+Google".
 
-This guide covers the one-time Google Cloud setup (creating the OAuth
-credential) and then the in-app flow.
+## The fast way (in-app wizard)
 
-## Step 1 — Create the Google Cloud project
+1. Open the app at `http://localhost:3000`.
+2. Go to the **Settings** tab.
+3. Scroll to the **YouTube accounts** card.
+4. If OAuth isn't configured yet, you'll see a **"One-time setup required"**
+   wizard with 4 numbered steps:
+   - **Step 1**: Link to Google Cloud Console (enable YouTube Data API v3)
+   - **Step 2**: Link to create an OAuth client ID (Web application type)
+   - **Step 3**: Copy-paste the redirect URI into Google Cloud
+   - **Step 4**: Paste your Client ID + Client Secret, click **Save credentials**
+5. Once saved, the wizard disappears and a **"Connect with Google"** button
+   appears. Click it, log in with your Google account, and your YouTube
+   channel is connected.
+
+The credentials are stored in the app's SQLite database (not in `.env`),
+so they persist across restarts. You only need to do this once.
+
+## The manual way (.env)
+
+If you prefer editing `.env` directly (e.g. for CI/CD or headless servers),
+set these vars:
+
+```bash
+YOUTUBE_CLIENT_ID=your-client-id.apps.googleusercontent.com
+YOUTUBE_CLIENT_SECRET=your-client-secret
+YOUTUBE_REDIRECT_URI=http://localhost:3000/api/youtube/callback
+```
+
+The app reads from the DB first, then falls back to env vars. So you can
+use either method (or both — DB takes priority).
+
+---
+
+## Detailed Google Cloud setup (if you need to do it manually)
+
+### Step 1 — Create the Google Cloud project
 
 1. Go to <https://console.cloud.google.com/>.
 2. Create a new project (or reuse an existing one).

@@ -77,13 +77,13 @@ export function YouTubeAccountSelector({
       <div className="flex flex-col gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 p-3">
         <div className="flex items-center gap-2 text-sm font-medium text-amber-700 dark:text-amber-400">
           <AlertTriangleIcon className="size-4" />
-          No YouTube account connected
+          No YouTube account connected yet
         </div>
         <p className="text-xs text-muted-foreground">
-          You need to connect at least one YouTube account before scheduling.
+          Go to Settings → YouTube accounts to connect your channel with Google. It takes about 3 minutes.
         </p>
         <Button asChild size="sm" className="w-fit">
-          <Link href="/api/youtube/auth?returnTo=/create">Connect YouTube account</Link>
+          <Link href="/#settings">Go to Settings</Link>
         </Button>
       </div>
     );

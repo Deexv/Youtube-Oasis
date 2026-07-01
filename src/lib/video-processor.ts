@@ -391,6 +391,7 @@ export async function generateSRTViaWhisper(
         timeout: 600000, // 10 min timeout
         maxBuffer: 1024 * 1024 * 10,
         windowsHide: true,
+        shell: isWindows, // Required on Windows to find python.exe
       },
     );
     return outputPath;

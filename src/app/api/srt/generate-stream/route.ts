@@ -67,7 +67,15 @@ export async function POST(req: Request) {
         try {
           send({ stage: "starting", message: "Starting SRT generation…", progress: 5 });
 
-          const proc = spawn(pythonCmd, [scriptPath, longForm.filePath, srtPath, model], {
+          // On Windows with shell:true, we must quote paths that contain spaces
+          // (e.g. "C:\Users\bless\Desktop\Tobi\code p\...") otherwise cmd.exe
+          // splits them at the space and Python gets a truncated path.
+          const quote = (s: string) => `"${s}"`;
+          const args = isWindows
+            ? [quote(scriptPath), quote(longForm.filePath), quote(srtPath), model]
+            : [scriptPath, longForm.filePath, srtPath, model];
+
+          const proc = spawn(pythonCmd, args, {
             windowsHide: true,
             shell: isWindows, // Required on Windows to find python.exe
           });

@@ -19,13 +19,12 @@ export {
   type DetectedMoment,
   type GeneratedShort,
 } from "@/lib/beats";
-import { BEAT_LABELS, BEAT_ORDER, type NarrativeBeat, type DetectedMoment } from "@/lib/beats";
+import { BEAT_LABELS, BEAT_ORDER, type NarrativeBeat, type DetectedMoment, type BeatClip, type NarrativeArc } from "@/lib/beats";
 import { chatJson, getConfiguredProviders, type ProviderName } from "@/lib/llm";
 
-const SYSTEM_PROMPT = `You are a viral short-form video editor.
-You find ALL viable moments in a long-form video transcript and tag each one with a narrative beat.
+const SYSTEM_PROMPT = `You are a viral short-form video editor who creates COMPLETE narrative shorts.
 
-Use this exact 6-beat narrative pattern (declare the hook/problem, rising-action/assess, conflict/isolate, comeback/process, build tension, then reveal):
+Each SHORT you create must be a self-contained story that follows this EXACT 6-beat narrative arc IN ORDER:
 1. hook       - Declare the hook/problem. The viewer's pain or curiosity gap.
 2. rising     - Rising action / assess. Stakes get clearer.
 3. conflict   - Conflict / isolate. The tension sharpens.
@@ -33,15 +32,38 @@ Use this exact 6-beat narrative pattern (declare the hook/problem, rising-action
 5. tension    - Build tension. Push toward the climax.
 6. reveal     - Reveal. Payoff or twist.
 
-IMPORTANT: Find EVERY moment in the video that matches one of these beats. A video might have 1 viable moment, or it might have 15. Do NOT cap the count at 6. If the video has 3 great hooks, return all 3. If it has 5 reveals, return all 5.
+CRITICAL RULES:
+- Each short = ALL 6 beats in order (hook → rising → conflict → comeback → tension → reveal).
+- The 6 clips can come from ANYWHERE in the video — not consecutive. You are MERGING clips from different timestamps to tell a complete story.
+- Each clip should be 3-7 seconds. The total short should be 20-40 seconds.
+- Each clip must start and end at a natural sentence/clause boundary (use the SRT timestamps).
+- The clips must flow logically — the viewer should feel a complete narrative arc, not disjointed cuts.
+- Find as many complete arcs as the video supports (1, 3, 5, 10 — however many good stories the video contains).
+- Give each arc a catchy title and header.
 
 The transcript below includes timestamps in [HH:MM:SS,mmm --> HH:MM:SS,mmm] format. Use these timestamps for accurate sourceStart/sourceEnd values.
 
-Return STRICT JSON: {"moments": [{"beat": "hook|rising|conflict|comeback|tension|reveal", "title": string, "rationale": string, "sourceStart": number, "sourceEnd": number}]}
-- sourceStart/sourceEnd are seconds into the source video (use the timestamp data for accuracy).
-- Each moment MUST be 20-40 seconds long. This is critical for YouTube Shorts.
-- Return ALL viable moments — 1, 5, 10, 15, or however many the video contains. Do not artificially cap the count.
-- Each moment should be a self-contained clip that makes sense on its own.
+Return STRICT JSON:
+{
+  "arcs": [
+    {
+      "title": "short title",
+      "header": "viral header (max 60 chars)",
+      "clips": [
+        {"beat": "hook", "sourceStart": number, "sourceEnd": number, "text": "what is said in this clip"},
+        {"beat": "rising", "sourceStart": number, "sourceEnd": number, "text": "what is said in this clip"},
+        {"beat": "conflict", "sourceStart": number, "sourceEnd": number, "text": "what is said in this clip"},
+        {"beat": "comeback", "sourceStart": number, "sourceEnd": number, "text": "what is said in this clip"},
+        {"beat": "tension", "sourceStart": number, "sourceEnd": number, "text": "what is said in this clip"},
+        {"beat": "reveal", "sourceStart": number, "sourceEnd": number, "text": "what is said in this clip"}
+      ]
+    }
+  ]
+}
+- sourceStart/sourceEnd are seconds into the source video.
+- Each clip must be 3-7 seconds.
+- The total duration of all 6 clips must be 20-40 seconds.
+- "text" is the exact words spoken in that clip (for subtitles).
 - No prose outside the JSON.`;
 
 const HEADER_SYSTEM_PROMPT = `You write viral YouTube Shorts headers/captions.
@@ -74,6 +96,12 @@ export function getProviderStatus(): ProviderStatus {
   return { configured, rotate };
 }
 
+export type ArcDetectionResult = {
+  arcs: NarrativeArc[];
+  provider: ProviderName | "fallback";
+  error?: string;
+};
+
 export type DetectionResult = {
   moments: DetectedMoment[];
   provider: ProviderName | "fallback";
@@ -81,28 +109,25 @@ export type DetectionResult = {
 };
 
 /**
- * Detect best moments in a transcript using the configured LLM provider(s),
- * with the user's 6-beat pattern.
- *
- * Returns a DetectionResult that includes which provider was used and any
- * error that caused a fallback. This lets the API surface to the UI whether
- * the LLM actually analyzed the transcript or the fallback was used.
+ * Detect complete narrative arcs in a transcript.
+ * Each arc = 6 clips (hook → rising → conflict → comeback → tension → reveal)
+ * assembled from different parts of the video.
  */
-export async function detectMomentsWithStatus(
+export async function detectArcsWithStatus(
   transcript: string,
   totalDurationSec: number,
-): Promise<DetectionResult> {
+): Promise<ArcDetectionResult> {
   const configured = getConfiguredProviders();
   if (configured.length === 0) {
     return {
-      moments: fallbackMoments(totalDurationSec),
+      arcs: fallbackArcs(totalDurationSec),
       provider: "fallback",
       error: "No LLM provider configured. Set at least one API key in .env (ZAI_API_KEY, GROQ_API_KEY, GEMINI_API_KEY, or ANTHROPIC_API_KEY).",
     };
   }
   if (!transcript || transcript.length < 50) {
     return {
-      moments: fallbackMoments(totalDurationSec),
+      arcs: fallbackArcs(totalDurationSec),
       provider: "fallback",
       error: "Transcript too short for LLM analysis (< 50 chars).",
     };
@@ -114,6 +139,129 @@ export async function detectMomentsWithStatus(
       temperature: 0.6,
     });
     const parsed = JSON.parse(extractJson(content));
+    const arcs = (parsed.arcs ?? [])
+      .map((a: any) => normalizeArc(a, totalDurationSec))
+      .filter(Boolean) as NarrativeArc[];
+    if (arcs.length === 0) {
+      return {
+        arcs: fallbackArcs(totalDurationSec),
+        provider: "fallback",
+        error: `LLM (${provider}) returned 0 arcs. Using fallback.`,
+      };
+    }
+    return { arcs, provider };
+  } catch (e: any) {
+    return {
+      arcs: fallbackArcs(totalDurationSec),
+      provider: "fallback",
+      error: `LLM call failed: ${e?.message || "unknown error"}. Using fallback.`,
+    };
+  }
+}
+
+function normalizeArc(a: any, totalDurationSec: number): NarrativeArc | null {
+  if (!a || !Array.isArray(a.clips) || a.clips.length < 3) return null;
+  const clips: BeatClip[] = a.clips
+    .map((c: any) => {
+      if (!c || !BEAT_ORDER.includes(c.beat)) return null;
+      let start = Math.max(0, Math.min(totalDurationSec, Number(c.sourceStart) || 0));
+      let end = Math.max(start + 1, Math.min(totalDurationSec, Number(c.sourceEnd) || start + 5));
+      // Clamp to 3-7 seconds per clip
+      const dur = end - start;
+      if (dur > 7) end = start + 7;
+      if (dur < 3) end = Math.min(totalDurationSec, start + 3);
+      return {
+        beat: c.beat as NarrativeBeat,
+        sourceStart: start,
+        sourceEnd: end,
+        text: String(c.text || "").slice(0, 300),
+      };
+    })
+    .filter(Boolean) as BeatClip[];
+  if (clips.length < 3) return null;
+  const totalDuration = clips.reduce((a, c) => a + (c.sourceEnd - c.sourceStart), 0);
+  // Clamp total to 20-40 seconds
+  if (totalDuration < 15 || totalDuration > 50) return null;
+  return {
+    id: `arc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    title: String(a.title || "Untitled short").slice(0, 120),
+    header: String(a.header || a.title || "").slice(0, 60),
+    clips,
+    totalDuration,
+  };
+}
+
+function fallbackArcs(totalDurationSec: number): NarrativeArc[] {
+  // Create 1-3 simple arcs with 30-second total duration
+  const count = Math.min(3, Math.max(1, Math.floor(totalDurationSec / 120)));
+  return Array.from({ length: count }, (_, i) => {
+    const offset = i * Math.floor(totalDurationSec / count);
+    const clipDur = 5; // 5 seconds per clip × 6 clips = 30s total
+    const clips: BeatClip[] = BEAT_ORDER.map((beat, j) => {
+      const start = Math.min(totalDurationSec - clipDur, offset + j * clipDur);
+      return {
+        beat,
+        sourceStart: start,
+        sourceEnd: Math.min(totalDurationSec, start + clipDur),
+        text: `Segment ${j + 1} — ${BEAT_LABELS[beat]}`,
+      };
+    });
+    return {
+      id: `fallback-arc-${i}`,
+      title: `Short ${i + 1}`,
+      header: `Short ${i + 1}`,
+      clips,
+      totalDuration: clipDur * BEAT_ORDER.length,
+    };
+  });
+}
+
+/**
+ * Backward-compatible: detect individual moments (old pipeline).
+ * Prefer detectArcsWithStatus() for the new arc-based pipeline.
+ */
+export async function detectMomentsWithStatus(
+  transcript: string,
+  totalDurationSec: number,
+): Promise<DetectionResult> {
+  const configured = getConfiguredProviders();
+  if (configured.length === 0) {
+    return {
+      moments: fallbackMoments(totalDurationSec),
+      provider: "fallback",
+      error: "No LLM provider configured.",
+    };
+  }
+  if (!transcript || transcript.length < 50) {
+    return {
+      moments: fallbackMoments(totalDurationSec),
+      provider: "fallback",
+      error: "Transcript too short for LLM analysis.",
+    };
+  }
+  try {
+    const { content, provider } = await chatJson({
+      system: SYSTEM_PROMPT,
+      user: `Transcript:\n${transcript.slice(0, 12000)}\n\nTotal duration: ${totalDurationSec}s`,
+      temperature: 0.6,
+    });
+    const parsed = JSON.parse(extractJson(content));
+    // Try arcs format first, fall back to moments
+    if (parsed.arcs) {
+      const arcs = (parsed.arcs ?? [])
+        .map((a: any) => normalizeArc(a, totalDurationSec))
+        .filter(Boolean) as NarrativeArc[];
+      const moments: DetectedMoment[] = arcs.flatMap((a) =>
+        a.clips.map((c) => ({
+          beat: c.beat,
+          title: a.title,
+          rationale: a.header,
+          sourceStart: c.sourceStart,
+          sourceEnd: c.sourceEnd,
+        })),
+      );
+      return { moments, provider };
+    }
     const moments = (parsed.moments ?? [])
       .map((m: any) => normalizeMoment(m, totalDurationSec))
       .filter(Boolean) as DetectedMoment[];
@@ -121,7 +269,7 @@ export async function detectMomentsWithStatus(
       return {
         moments: fallbackMoments(totalDurationSec),
         provider: "fallback",
-        error: `LLM (${provider}) returned 0 moments. Using fallback splitter.`,
+        error: `LLM (${provider}) returned 0 results. Using fallback.`,
       };
     }
     return { moments, provider };
@@ -129,7 +277,7 @@ export async function detectMomentsWithStatus(
     return {
       moments: fallbackMoments(totalDurationSec),
       provider: "fallback",
-      error: `LLM call failed: ${e?.message || "unknown error"}. Using fallback splitter.`,
+      error: `LLM call failed: ${e?.message || "unknown error"}. Using fallback.`,
     };
   }
 }

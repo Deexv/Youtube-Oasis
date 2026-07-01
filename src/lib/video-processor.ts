@@ -16,9 +16,10 @@
 import { execFile } from "child_process";
 import { promisify } from "util";
 import path from "path";
-import { mkdir, writeFile, stat } from "fs/promises";
+import { mkdir, writeFile, stat, unlink } from "fs/promises";
 import { existsSync } from "fs";
 import { generateSRT, type SrtSegment } from "@/lib/srt";
+import type { BeatClip, NarrativeArc } from "@/lib/beats";
 
 // Re-export client-safe types/constants
 export { type SubtitleStyle, SUBTITLE_STYLES } from "@/lib/video-processor-shared";
@@ -380,6 +381,231 @@ export async function processShort(input: ProcessShortInput): Promise<ProcessSho
     const stderrTail = e?.stderr?.slice(-1000) || e?.message || "no stderr";
     throw new Error(`FFmpeg failed: ${stderrTail}`);
   }
+}
+
+// ─── ARC-BASED SHORT PROCESSING ────────────────────────────────────────
+
+export type ProcessArcInput = {
+  inputPath: string;
+  outputPath: string;
+  arc: NarrativeArc;
+  subtitleStyle: SubtitleStyle;
+  subtitlesEnabled: boolean;
+};
+
+export type ProcessArcResult = {
+  outputPath: string;
+  duration: number;
+  fileSize: number;
+};
+
+/**
+ * Process a complete narrative arc:
+ *   1. Cut each clip from the source video (stream copy = fast)
+ *   2. Concatenate all clips into one video
+ *   3. Apply crop + scale (9:16) + subtitle burn + title overlay
+ *
+ * Each arc has 6 clips (hook → rising → conflict → comeback → tension → reveal)
+ * taken from different parts of the video, merged into one 20-40s short.
+ */
+export async function processShortArc(input: ProcessArcInput): Promise<ProcessArcResult> {
+  const { inputPath, outputPath, arc, subtitleStyle, subtitlesEnabled } = input;
+
+  const outDir = path.dirname(outputPath);
+  if (!existsSync(outDir)) {
+    await mkdir(outDir, { recursive: true });
+  }
+
+  const isWin = process.platform === "win32";
+
+  // Step 1: Cut each clip to a temp file (stream copy = no re-encode = fast)
+  const tempFiles: string[] = [];
+  let currentTimecode = 0; // running timecode in the merged video
+  const clipTimings: Array<{ start: number; end: number; clip: BeatClip }> = [];
+
+  for (let i = 0; i < arc.clips.length; i++) {
+    const clip = arc.clips[i];
+    const dur = clip.sourceEnd - clip.sourceStart;
+    const tempFile = outputPath.replace(/\.mp4$/, `-clip-${i}.mp4`);
+
+    const cutArgs = [
+      "-y",
+      "-ss", String(clip.sourceStart),
+      "-i", inputPath,
+      "-t", String(dur),
+      "-c", "copy",
+      "-avoid_negative_ts", "make_zero",
+      tempFile,
+    ];
+
+    try {
+      await execFileAsync("ffmpeg", cutArgs, {
+        timeout: 60000,
+        maxBuffer: 1024 * 1024 * 10,
+        windowsHide: true,
+      });
+      tempFiles.push(tempFile);
+      clipTimings.push({ start: currentTimecode, end: currentTimecode + dur, clip });
+      currentTimecode += dur;
+    } catch (e: any) {
+      // Clean up temp files
+      for (const f of tempFiles) {
+        try { await unlink(f); } catch {}
+      }
+      throw new Error(`Failed to cut clip ${i + 1} (${clip.beat}): ${e?.stderr?.slice(-300) || e?.message}`);
+    }
+  }
+
+  // Step 2: Concatenate using the concat demuxer
+  const concatListPath = outputPath.replace(/\.mp4$/, "-concat.txt");
+  const concatContent = tempFiles.map((f) => `file '${f.replace(/'/g, "'\\''")}'`).join("\n");
+  await writeFile(concatListPath, concatContent, "utf-8");
+
+  const mergedFile = outputPath.replace(/\.mp4$/, "-merged.mp4");
+  const concatArgs = [
+    "-y",
+    "-f", "concat",
+    "-safe", "0",
+    "-i", concatListPath,
+    "-c", "copy",
+    mergedFile,
+  ];
+
+  try {
+    await execFileAsync("ffmpeg", concatArgs, {
+      timeout: 120000,
+      maxBuffer: 1024 * 1024 * 10,
+      windowsHide: true,
+    });
+  } catch (e: any) {
+    for (const f of tempFiles) { try { await unlink(f); } catch {} }
+    try { await unlink(concatListPath); } catch {}
+    throw new Error(`Concat failed: ${e?.stderr?.slice(-300) || e?.message}`);
+  }
+
+  // Clean up temp clip files + concat list
+  for (const f of tempFiles) { try { await unlink(f); } catch {} }
+  try { await unlink(concatListPath); } catch {}
+
+  // Step 3: Apply crop + scale + subtitles + title on the merged video
+  const filters: string[] = [];
+  filters.push("crop=ih*9/16:ih");
+  filters.push("scale=1080:1920:flags=lanczos");
+  filters.push("setsar=1");
+
+  // Generate ASS subtitles with 4-5 word groups + white-background title
+  if (subtitlesEnabled && subtitleStyle !== "none") {
+    const assPath = outputPath.replace(/\.[^.]+$/, ".ass");
+    const assContent = generateArcASS(arc, clipTimings, subtitleStyle);
+    await writeFile(assPath, assContent, "utf-8");
+    const filterPath = isWin
+      ? assPath.replace(/\\/g, "/").replace(/:/g, "\\:")
+      : assPath.replace(/:/g, "\\:");
+    filters.push(`ass='${filterPath}'`);
+  }
+
+  // drawtext for duration (skip on Windows — fontconfig issue)
+  const duration = currentTimecode;
+  if (!isWin) {
+    filters.push(
+      `drawtext=text='${Math.round(duration)}s':fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf:fontsize=36:fontcolor=white:borderw=2:bordercolor=black:x=w-text_w-20:y=h-text_h-20`,
+    );
+  }
+
+  const filterComplex = filters.join(",");
+
+  const encodeArgs = [
+    "-y",
+    "-i", mergedFile,
+    "-vf", filterComplex,
+    "-c:v", "libx264",
+    "-preset", "ultrafast",
+    "-crf", "30",
+    "-pix_fmt", "yuv420p",
+    "-c:a", "aac",
+    "-b:a", "96k",
+    "-ac", "1",
+    "-movflags", "+faststart",
+    outputPath,
+  ];
+
+  try {
+    await execFileAsync("ffmpeg", encodeArgs, {
+      timeout: 300000,
+      maxBuffer: 1024 * 1024 * 10,
+      windowsHide: true,
+    });
+    // Clean up merged file
+    try { await unlink(mergedFile); } catch {}
+
+    const fileStat = await stat(outputPath);
+    return { outputPath, duration, fileSize: fileStat.size };
+  } catch (e: any) {
+    try { await unlink(mergedFile); } catch {}
+    const stderrTail = e?.stderr?.slice(-1000) || e?.message || "no stderr";
+    throw new Error(`FFmpeg encode failed: ${stderrTail}`);
+  }
+}
+
+/**
+ * Generate an ASS file for an arc.
+ * - Title: white background, shown for first 5 seconds
+ * - Subtitles: split into 4-5 word groups, each shown for ~1.5 seconds
+ */
+function generateArcASS(
+  arc: NarrativeArc,
+  clipTimings: Array<{ start: number; end: number; clip: BeatClip }>,
+  style: SubtitleStyle,
+): string {
+  if (style === "none") return "";
+
+  const styles = getASSStyleConfig(style);
+
+  let ass = `[Script Info]
+Title: ${arc.title.replace(/[\n\r]/g, " ")}
+ScriptType: v4.00+
+PlayResX: 1080
+PlayResY: 1920
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: ${styles.name},${styles.font},${styles.size},${styles.primaryColour},${styles.secondaryColour},${styles.outlineColour},${styles.backColour},${styles.bold},0,0,0,100,100,${styles.spacing},0,1,${styles.outline},${styles.shadow},2,80,80,${styles.marginV},1
+Style: TitleStyle,Arial Black,56,&H00000000,&H000000FF,&H00FFFFFF,&H00FFFFFF,1,0,0,0,100,100,2,0,1,4,0,8,60,60,80,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+`;
+
+  // Title line — white background, black text, shown for 5 seconds at top
+  const titleText = arc.header.replace(/[\n\r]/g, " ").slice(0, 50).replace(/\{/g, "").replace(/\}/g, "");
+  const titleEnd = Math.min(5, arc.totalDuration);
+  ass += `Dialogue: 1,0:00:00.00,${assTime(titleEnd)},TitleStyle,,0,0,0,,${titleText}\n`;
+
+  // Subtitle lines — split each clip's text into 4-5 word groups
+  for (const { start, end, clip } of clipTimings) {
+    const words = clip.text.split(/\s+/).filter(Boolean);
+    if (words.length === 0) continue;
+
+    // Group into 4-5 word chunks
+    const groupSize = words.length <= 5 ? words.length : 4;
+    const groups: string[] = [];
+    for (let i = 0; i < words.length; i += groupSize) {
+      groups.push(words.slice(i, i + groupSize).join(" "));
+    }
+
+    const clipDur = end - start;
+    const timePerGroup = clipDur / groups.length;
+
+    for (let i = 0; i < groups.length; i++) {
+      const segStart = start + i * timePerGroup;
+      const segEnd = start + (i + 1) * timePerGroup;
+      const text = groups[i].replace(/\{/g, "").replace(/\}/g, "");
+      ass += `Dialogue: 0,${assTime(segStart)},${assTime(segEnd)},${styles.name},,0,0,0,,${text}\n`;
+    }
+  }
+
+  return ass;
 }
 
 /**

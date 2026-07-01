@@ -1,14 +1,13 @@
 import { db } from "@/lib/db";
-import { detectMomentsWithStatus, generateShortHeader } from "@/lib/zai";
+import { detectArcsWithStatus } from "@/lib/zai";
 import {
-  processShort,
+  processShortArc,
   getVideoDuration,
   isFFmpegAvailable,
   type SubtitleStyle,
 } from "@/lib/video-processor";
 import {
   parseSRT,
-  extractSrtSegment,
   srtToTranscript,
 } from "@/lib/srt";
 import path from "path";
@@ -88,9 +87,9 @@ export async function POST(req: Request) {
         }
 
         try {
-          send({ stage: "llm", message: "Analyzing transcript with LLM…", progress: 5, total: 0 });
+          send({ stage: "llm", message: "Analyzing transcript with LLM — finding complete narrative arcs…", progress: 5, total: 0 });
 
-          const detection = await detectMomentsWithStatus(
+          const detection = await detectArcsWithStatus(
             transcriptForLLM || longForm.transcript || "",
             duration || 600,
           );
@@ -99,34 +98,23 @@ export async function POST(req: Request) {
             console.warn(`[shorts/generate-stream] ${detection.error}`);
           }
 
-          if (detection.moments.length === 0) {
-            send({ stage: "error", message: "No viable moments found.", progress: 0 });
+          if (detection.arcs.length === 0) {
+            send({ stage: "error", message: "No viable narrative arcs found.", progress: 0 });
             controller.close();
             return;
           }
 
-          const moments = detection.moments;
+          const arcs = detection.arcs;
           send({
             stage: "llm_done",
-            message: `Found ${moments.length} moments via ${detection.provider}`,
+            message: `Found ${arcs.length} complete narrative arcs via ${detection.provider}`,
             progress: 15,
-            total: moments.length,
+            total: arcs.length,
             llmProvider: detection.provider,
             llmWarning: detection.error,
           });
 
-          send({ stage: "headers", message: "Generating viral headers…", progress: 20, total: moments.length });
-
-          const headerPromises = moments.map((m) =>
-            generateShortHeader({
-              beat: m.beat,
-              title: m.title,
-              rationale: m.rationale,
-              sourceStart: m.sourceStart,
-              sourceEnd: m.sourceEnd,
-            }).catch(() => null),
-          );
-          const headers = await Promise.all(headerPromises);
+          send({ stage: "headers", message: "Preparing shorts…", progress: 20, total: arcs.length });
 
           const shortsDir = path.join(process.cwd(), "uploads", "shorts", longFormId);
           if (!existsSync(shortsDir)) {
@@ -137,25 +125,20 @@ export async function POST(req: Request) {
           const created: any[] = [];
           const errors: string[] = [];
           let processed = 0;
-          const total = moments.length;
+          const total = arcs.length;
 
-          for (let i = 0; i < moments.length; i += BATCH_SIZE) {
-            const batch = moments.slice(i, i + BATCH_SIZE);
+          for (let i = 0; i < arcs.length; i += BATCH_SIZE) {
+            const batch = arcs.slice(i, i + BATCH_SIZE);
             const batchResults = await Promise.all(
-              batch.map(async (m, j) => {
+              batch.map(async (arc, j) => {
                 try {
-                  const header = headers[i + j] || m.title;
-                  const segSrt = extractSrtSegment(srtSegments, m.sourceStart, m.sourceEnd);
-                  const shortFileName = `short-${Date.now()}-${i + j + 1}-${m.beat}.mp4`;
+                  const shortFileName = `short-${Date.now()}-${i + j + 1}.mp4`;
                   const shortFilePath = path.join(shortsDir, shortFileName);
 
-                  const result = await processShort({
+                  const result = await processShortArc({
                     inputPath: longForm.filePath,
                     outputPath: shortFilePath,
-                    startSec: m.sourceStart,
-                    endSec: m.sourceEnd,
-                    title: header,
-                    subtitleSegments: segSrt,
+                    arc,
                     subtitleStyle: subtitleStyle as SubtitleStyle,
                     subtitlesEnabled,
                   });
@@ -163,13 +146,13 @@ export async function POST(req: Request) {
                   const row = await db.short.create({
                     data: {
                       longFormId: longForm.id,
-                      beat: m.beat,
-                      title: m.title,
-                      header,
-                      description: m.rationale,
+                      beat: "arc",
+                      title: arc.title,
+                      header: arc.header,
+                      description: `6-beat arc: ${arc.clips.map((c: any) => c.beat).join(" → ")}`,
                       filePath: shortFilePath,
-                      sourceStart: m.sourceStart,
-                      sourceEnd: m.sourceEnd,
+                      sourceStart: arc.clips[0]?.sourceStart || 0,
+                      sourceEnd: arc.clips[arc.clips.length - 1]?.sourceEnd || 0,
                       duration: result.duration,
                       subtitleStyle,
                       status: "ready",
@@ -181,7 +164,7 @@ export async function POST(req: Request) {
                   const pct = 20 + Math.round((processed / total) * 75);
                   send({
                     stage: "processing",
-                    message: `Processed short ${processed}/${total} (${m.beat})`,
+                    message: `Processed short ${processed}/${total} — "${arc.header}"`,
                     progress: pct,
                     current: processed,
                     total,
@@ -189,9 +172,9 @@ export async function POST(req: Request) {
 
                   return {
                     id: row.id,
-                    beat: row.beat,
-                    title: row.title,
-                    header,
+                    beat: "arc",
+                    title: arc.title,
+                    header: arc.header,
                     sourceStart: row.sourceStart,
                     sourceEnd: row.sourceEnd,
                     duration: result.duration,
@@ -200,10 +183,9 @@ export async function POST(req: Request) {
                     status: "ready",
                   };
                 } catch (e: any) {
-                  const errMsg = `Short ${i + j + 1} (${m.beat}): ${e?.message || "unknown error"}`;
+                  const errMsg = `Short ${i + j + 1}: ${e?.message || "unknown error"}`;
                   console.error(errMsg);
                   errors.push(errMsg);
-                  // Send the error to the client so the user can see what's failing
                   send({
                     stage: "short_error",
                     message: errMsg,
@@ -221,9 +203,9 @@ export async function POST(req: Request) {
             message: `Created ${created.length} shorts${errors.length > 0 ? ` (${errors.length} failed)` : ""}`,
             progress: 100,
             created,
-            totalFound: moments.length,
+            totalFound: arcs.length,
             totalProcessed: created.length,
-            totalFailed: moments.length - created.length,
+            totalFailed: arcs.length - created.length,
             llmProvider: detection.provider,
             llmWarning: detection.error,
             errors: errors.length > 0 ? errors : undefined,

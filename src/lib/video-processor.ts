@@ -429,13 +429,18 @@ export async function processShortArc(input: ProcessArcInput): Promise<ProcessAr
     const dur = clip.sourceEnd - clip.sourceStart;
     const tempFile = outputPath.replace(/\.mp4$/, `-clip-${i}.mp4`);
 
-    // Re-encode the clip (not stream copy) — stream copy fails on WebM/VP8
-    // with "Invalid argument" on Windows
+    // Re-encode the clip with fade-in/fade-out for smooth transitions
+    // when clips are concatenated. 0.3s fade at start + 0.3s fade at end.
+    // Also add a tiny bit of padding (0.1s) to avoid cutting the last frame.
+    const fadeOutStart = Math.max(0, dur - 0.3);
+    const vf = `fade=t=in:st=0:d=0.3,fade=t=out:st=${fadeOutStart}:d=0.3`;
     const cutArgs = [
       "-y",
       "-ss", String(clip.sourceStart),
       "-i", inputPath,
       "-t", String(dur),
+      "-vf", vf,
+      "-af", `afade=t=in:st=0:d=0.2,afade=t=out:st=${fadeOutStart}:d=0.2`,
       "-c:v", "libx264",
       "-preset", "ultrafast",
       "-crf", "30",
@@ -443,6 +448,7 @@ export async function processShortArc(input: ProcessArcInput): Promise<ProcessAr
       "-c:a", "aac",
       "-b:a", "96k",
       "-ac", "1",
+      "-r", "30",
       tempFile,
     ];
 

@@ -22,9 +22,9 @@ export {
 import { BEAT_LABELS, BEAT_ORDER, type NarrativeBeat, type DetectedMoment, type BeatClip, type NarrativeArc } from "@/lib/beats";
 import { chatJson, getConfiguredProviders, type ProviderName } from "@/lib/llm";
 
-const SYSTEM_PROMPT = `You are a viral short-form video editor who creates COMPLETE narrative shorts.
+const SYSTEM_PROMPT = `You are a viral short-form video editor who creates COMPLETE, COHERENT narrative shorts from long-form video transcripts.
 
-Each SHORT you create must be a self-contained story that follows this EXACT 6-beat narrative arc IN ORDER:
+Each SHORT must be a self-contained story that follows this EXACT 6-beat narrative arc IN ORDER:
 1. hook       - Declare the hook/problem. The viewer's pain or curiosity gap.
 2. rising     - Rising action / assess. Stakes get clearer.
 3. conflict   - Conflict / isolate. The tension sharpens.
@@ -32,16 +32,15 @@ Each SHORT you create must be a self-contained story that follows this EXACT 6-b
 5. tension    - Build tension. Push toward the climax.
 6. reveal     - Reveal. Payoff or twist.
 
-CRITICAL RULES:
-- Each short = ALL 6 beats in order (hook → rising → conflict → comeback → tension → reveal).
-- The 6 clips can come from ANYWHERE in the video — not consecutive. You are MERGING clips from different timestamps to tell a complete story.
-- Each clip should be 3-7 seconds. The total short should be 20-40 seconds.
-- Each clip must start and end at a natural sentence/clause boundary (use the SRT timestamps).
-- The clips must flow logically — the viewer should feel a complete narrative arc, not disjointed cuts.
-- Find as many complete arcs as the video supports (1, 3, 5, 10 — however many good stories the video contains).
-- Give each arc a catchy title and header.
+CRITICAL RULES FOR COHERENCE:
+- Each clip MUST start at the beginning of a sentence or clause and end at the end of one. NEVER cut mid-word or mid-sentence. Use the SRT segment timestamps as boundaries.
+- The 6 clips together must tell a COMPLETE story that makes sense on its own. A viewer who hasn't seen the original video should understand the narrative.
+- The clips must flow logically — each beat should naturally lead to the next. If a clip from timestamp 5:30 follows a clip from 1:20, the viewer should feel a smooth transition.
+- Pick clips where the speaker COMPLETES their thought within the clip. Don't end on a cliffhanger mid-sentence.
+- Each clip should be 3-8 seconds. The total short should be 20-45 seconds.
+- Find as many complete arcs as the video supports (1, 2, 3 — however many good stories the video contains). Quality over quantity. Do NOT create arcs that don't make sense.
 
-The transcript below includes timestamps in [HH:MM:SS,mmm --> HH:MM:SS,mmm] format. Use these timestamps for accurate sourceStart/sourceEnd values.
+The transcript below includes timestamps in [HH:MM:SS,mmm --> HH:MM:SS,mmm] format. Each bracketed segment is one SRT entry. Use these exact timestamps as clip boundaries.
 
 Return STRICT JSON:
 {
@@ -50,20 +49,21 @@ Return STRICT JSON:
       "title": "short title",
       "header": "viral header (max 60 chars)",
       "clips": [
-        {"beat": "hook", "sourceStart": number, "sourceEnd": number, "text": "what is said in this clip"},
-        {"beat": "rising", "sourceStart": number, "sourceEnd": number, "text": "what is said in this clip"},
-        {"beat": "conflict", "sourceStart": number, "sourceEnd": number, "text": "what is said in this clip"},
-        {"beat": "comeback", "sourceStart": number, "sourceEnd": number, "text": "what is said in this clip"},
-        {"beat": "tension", "sourceStart": number, "sourceEnd": number, "text": "what is said in this clip"},
-        {"beat": "reveal", "sourceStart": number, "sourceEnd": number, "text": "what is said in this clip"}
+        {"beat": "hook", "sourceStart": number, "sourceEnd": number, "text": "exact words spoken"},
+        {"beat": "rising", "sourceStart": number, "sourceEnd": number, "text": "exact words spoken"},
+        {"beat": "conflict", "sourceStart": number, "sourceEnd": number, "text": "exact words spoken"},
+        {"beat": "comeback", "sourceStart": number, "sourceEnd": number, "text": "exact words spoken"},
+        {"beat": "tension", "sourceStart": number, "sourceEnd": number, "text": "exact words spoken"},
+        {"beat": "reveal", "sourceStart": number, "sourceEnd": number, "text": "exact words spoken"}
       ]
     }
   ]
 }
-- sourceStart/sourceEnd are seconds into the source video.
-- Each clip must be 3-7 seconds.
-- The total duration of all 6 clips must be 20-40 seconds.
-- "text" is the exact words spoken in that clip (for subtitles).
+- sourceStart/sourceEnd are seconds into the source video (from the SRT timestamps).
+- Each clip MUST be 3-8 seconds.
+- Total duration of all 6 clips MUST be 20-45 seconds.
+- "text" is the EXACT words spoken in that clip (for subtitles).
+- ONLY return arcs where all 6 beats are present and the story makes complete sense.
 - No prose outside the JSON.`;
 
 const HEADER_SYSTEM_PROMPT = `You write viral YouTube Shorts headers/captions.
@@ -165,11 +165,11 @@ function normalizeArc(a: any, totalDurationSec: number): NarrativeArc | null {
     .map((c: any) => {
       if (!c || !BEAT_ORDER.includes(c.beat)) return null;
       let start = Math.max(0, Math.min(totalDurationSec, Number(c.sourceStart) || 0));
-      let end = Math.max(start + 1, Math.min(totalDurationSec, Number(c.sourceEnd) || start + 5));
-      // Clamp to 3-7 seconds per clip
+      let end = Math.max(start + 2, Math.min(totalDurationSec, Number(c.sourceEnd) || start + 5));
+      // Clamp to 2-10 seconds per clip (more lenient for natural sentence boundaries)
       const dur = end - start;
-      if (dur > 7) end = start + 7;
-      if (dur < 3) end = Math.min(totalDurationSec, start + 3);
+      if (dur > 10) end = start + 10;
+      if (dur < 2) end = Math.min(totalDurationSec, start + 2);
       return {
         beat: c.beat as NarrativeBeat,
         sourceStart: start,
@@ -179,9 +179,9 @@ function normalizeArc(a: any, totalDurationSec: number): NarrativeArc | null {
     })
     .filter(Boolean) as BeatClip[];
   if (clips.length < 3) return null;
-  const totalDuration = clips.reduce((a, c) => a + (c.sourceEnd - c.sourceStart), 0);
-  // Clamp total to 20-40 seconds
-  if (totalDuration < 15 || totalDuration > 50) return null;
+  const totalDuration = clips.reduce((sum, c) => sum + (c.sourceEnd - c.sourceStart), 0);
+  // More lenient: 12-60 seconds total
+  if (totalDuration < 12 || totalDuration > 60) return null;
   return {
     id: `arc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     title: String(a.title || "Untitled short").slice(0, 120),

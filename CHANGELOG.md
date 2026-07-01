@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - **Migrated from pnpm to npm** — switched the package manager from pnpm to npm (the Node.js default). Removed `pnpm-lock.yaml` and `pnpm-workspace.yaml`, added `package-lock.json`. All docs updated to use `npm install` / `npm run dev`.
 - **Cross-platform dev script** — the `dev` script now uses `cross-env` to set `NODE_OPTIONS` so it works on Windows, macOS, and Linux without shell-specific syntax.
+- **Auto-generate Prisma client on dev/build** — added `predev` and `prebuild` npm hooks that run `prisma generate` automatically, so you never get a "Prisma Client not found" error after pulling or switching branches.
 - Added `cross-env` as a dev dependency.
 
 ### Removed

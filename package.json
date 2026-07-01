@@ -3,7 +3,9 @@
   "version": "0.2.1",
   "private": true,
   "scripts": {
+    "predev": "prisma generate",
     "dev": "cross-env NODE_OPTIONS=--max-old-space-size=4096 next dev -p 3000",
+    "prebuild": "prisma generate",
     "build": "next build",
     "start": "next start -p 3000",
     "lint": "eslint .",

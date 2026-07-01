@@ -23,9 +23,9 @@ import { BEAT_LABELS, BEAT_ORDER, type NarrativeBeat, type DetectedMoment } from
 import { chatJson, getConfiguredProviders, type ProviderName } from "@/lib/llm";
 
 const SYSTEM_PROMPT = `You are a viral short-form video editor.
-You find the BEST moments in a long-form video transcript and tag each one with a narrative beat.
+You find ALL viable moments in a long-form video transcript and tag each one with a narrative beat.
 
-Use this exact 6-beat narrative pattern:
+Use this exact 6-beat narrative pattern (declare the hook/problem, rising-action/assess, conflict/isolate, comeback/process, build tension, then reveal):
 1. hook       - Declare the hook/problem. The viewer's pain or curiosity gap.
 2. rising     - Rising action / assess. Stakes get clearer.
 3. conflict   - Conflict / isolate. The tension sharpens.
@@ -33,10 +33,15 @@ Use this exact 6-beat narrative pattern:
 5. tension    - Build tension. Push toward the climax.
 6. reveal     - Reveal. Payoff or twist.
 
+IMPORTANT: Find EVERY moment in the video that matches one of these beats. A video might have 1 viable moment, or it might have 15. Do NOT cap the count at 6. If the video has 3 great hooks, return all 3. If it has 5 reveals, return all 5.
+
+The transcript below includes timestamps in [HH:MM:SS,mmm --> HH:MM:SS,mmm] format. Use these timestamps for accurate sourceStart/sourceEnd values.
+
 Return STRICT JSON: {"moments": [{"beat": "hook|rising|conflict|comeback|tension|reveal", "title": string, "rationale": string, "sourceStart": number, "sourceEnd": number}]}
-- sourceStart/sourceEnd are seconds into the source video.
-- Each moment should be 20-60 seconds long.
-- Pick AT MOST 6 moments, one per beat (you may skip beats that are not present).
+- sourceStart/sourceEnd are seconds into the source video (use the timestamp data for accuracy).
+- Each moment should be 15-60 seconds long.
+- Return ALL viable moments — 1, 5, 10, 15, or however many the video contains. Do not artificially cap the count.
+- Each moment should be a self-contained clip that makes sense on its own.
 - No prose outside the JSON.`;
 
 const HEADER_SYSTEM_PROMPT = `You write viral YouTube Shorts headers/captions.

@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-07-01
+
+### Added — Real video processing pipeline
+- **FFmpeg-powered short creation** — shorts are now actual video files (not just DB rows with timestamps). Each short is cut from the source video, converted to 9:16 vertical (1080x1920), and saved as an MP4.
+- **Viral subtitle burning** — 5 subtitle styles (Pop, Bounce, Neon, Kinetic, Fade) burned into the video via FFmpeg + ASS subtitles. Plus an on/off toggle.
+- **In-video title header** — each short gets the viral header text overlaid at the top, plus a duration display at the bottom-right.
+- **SRT support** — upload, paste, or auto-generate SRT files for accurate word-level timing. The LLM uses SRT timestamps to pick precise segment boundaries.
+- **Auto SRT via Whisper** — `scripts/generate-srt.py` uses `faster-whisper` (CTranslate2 backend, CPU-only, low-spec friendly) to transcribe audio and output SRT.
+- **Short preview** — video player in the Create tab lets you preview every generated short before scheduling.
+- **Download** — download individual shorts or all at once. Files are served with proper Content-Disposition headers.
+- **Batch scheduling** — select which shorts to schedule, then schedule them all with proper 2-hour spacing.
+- **Dynamic short count** — the LLM now finds ALL viable moments (1-15+), not capped at 6. The prompt explicitly says "A video might have 1 viable moment, or it might have 15."
+
+### New API routes
+- `POST /api/shorts/generate-v2` — the full pipeline: detect moments → cut → convert → subtitle → save
+- `GET /api/shorts/serve?id=...` — serves short video files with range request support for seeking
+- `POST /api/shorts/schedule-batch` — schedule selected shorts with proper spacing
+- `POST /api/srt/generate` — auto-generate SRT via faster-whisper
+
+### New components
+- `ShortPreviewCard` — video player + beat badge + select checkbox + download button
+- Updated `CreatePanel` with a 2-step shorts wizard: upload video → add SRT + pick style → generate → preview → select → schedule
+
+### Changed
+- LLM prompt updated to find ALL viable moments, not cap at 6
+- SRT-formatted transcripts (with timestamps) are now passed to the LLM for accurate timing
+- Shorts are created with `status: "ready"` (not auto-scheduled) — user previews and picks
+- `video-processor.ts` — new lib with `processShort()`, `getVideoDuration()`, `isFFmpegAvailable()`, `generateSRTViaWhisper()`
+- `srt.ts` — new lib with `parseSRT()`, `extractSrtSegment()`, `srtToTranscript()`, `generateSRT()`
+
+### Requirements
+- **FFmpeg** must be installed (with libass for subtitle burning)
+- **Python 3 + faster-whisper** for auto SRT generation (optional — users can paste SRT manually)
+- See README "Requirements" section for install instructions
+
 ## [0.2.2] — 2026-07-01
 
 ### Added

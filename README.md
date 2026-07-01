@@ -40,6 +40,21 @@ Set keys for Z.AI (GLM-4.6), Groq (Llama 3.3 70B), Gemini (2.5 Flash), and Claud
 
 ---
 
+## Requirements
+
+- **Node.js 18+** and npm
+- **FFmpeg** with libass (for video processing + subtitle burning)
+  - Linux: `sudo apt install ffmpeg`
+  - macOS: `brew install ffmpeg`
+  - Windows: download from https://ffmpeg.org/download.html
+- **Python 3** + `faster-whisper` (optional — for auto SRT generation)
+  - `pip install faster-whisper`
+  - If you skip this, you can still paste SRT files manually
+- At least one LLM API key (Z.AI, Groq, Gemini, or Claude)
+- A Google account (for YouTube OAuth — configured via the in-app wizard)
+
+---
+
 ## Quickstart
 
 ```bash

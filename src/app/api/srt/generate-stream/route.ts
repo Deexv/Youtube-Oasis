@@ -128,12 +128,38 @@ export async function POST(req: Request) {
           });
 
           if (exitCode !== 0) {
+            // Parse the actual error from stderr
             let errorMsg = `Python script exited with code ${exitCode}`;
+            const stderrLines = stderrBuffer.split("\n").filter(Boolean);
+
             if (stderrBuffer.includes("No module named")) {
               const modMatch = stderrBuffer.match(/No module named '(\w+)'/);
-              errorMsg = `Missing Python dependency: ${modMatch?.[1] || "unknown"}`;
+              errorMsg = `Missing Python dependency: ${modMatch?.[1] || "unknown"}. Run: pip install ${modMatch?.[1] || "faster-whisper"}`;
+            } else if (stderrBuffer.includes("FileNotFoundError") || stderrBuffer.includes("No such file")) {
+              errorMsg = "File not found — check the video file path.";
+            } else if (stderrBuffer.includes("PermissionError") || stderrBuffer.includes("EACCES")) {
+              errorMsg = "Permission denied — check file permissions.";
+            } else if (stderrBuffer.includes("CUDA")) {
+              errorMsg = "CUDA error — the script runs on CPU, this shouldn't happen.";
+            } else if (stderrBuffer.includes("OSError")) {
+              errorMsg = "OS error — the video file might be corrupted or in an unsupported format.";
+            } else if (stderrBuffer.includes("UnicodeDecodeError")) {
+              errorMsg = "Unicode decode error — the video file might be corrupted.";
+            } else if (stderrBuffer.includes("MemoryError") || stderrBuffer.includes("OutOfMemory")) {
+              errorMsg = "Out of memory — try a smaller Whisper model (tiny).";
+            } else if (stderrLines.length > 0) {
+              // Show the last few lines of stderr as the error
+              const lastLines = stderrLines.slice(-5).join("\n");
+              errorMsg = `Python error:\n${lastLines}`;
             }
-            send({ stage: "error", message: errorMsg, progress: 0, stderr: stderrBuffer.slice(-500) });
+
+            send({
+              stage: "error",
+              message: errorMsg,
+              progress: 0,
+              stderr: stderrBuffer.slice(-1000),
+              exitCode,
+            });
             controller.close();
             return;
           }

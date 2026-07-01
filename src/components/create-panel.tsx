@@ -46,6 +46,7 @@ import { StepProgress, type Step } from "@/components/step-progress";
 import { useDashboardStore } from "@/lib/store";
 import { BEAT_LABELS } from "@/lib/beats";
 import { SUBTITLE_STYLES, type SubtitleStyle } from "@/lib/video-processor-shared";
+import { useLocalStorage } from "@/hooks/use-local-storage";
 
 type Mode = "long-form" | "shorts";
 
@@ -130,12 +131,17 @@ export function CreatePanel() {
 }
 
 function ShortsWizard() {
-  const [uploaded, setUploaded] = useState<UploadedFile | null>(null);
-  const [title, setTitle] = useState("");
-  const [srtContent, setSrtContent] = useState("");
-  const [subtitleStyle, setSubtitleStyle] = useState<SubtitleStyle>("pop");
-  const [subtitlesEnabled, setSubtitlesEnabled] = useState(true);
-  const [whisperModel, setWhisperModel] = useState<string>("tiny");
+  // Persistent state — survives page reloads via localStorage
+  const [uploaded, setUploaded] = useLocalStorage<UploadedFile | null>("shorts:uploaded", null);
+  const [title, setTitle] = useLocalStorage<string>("shorts:title", "");
+  const [srtContent, setSrtContent] = useLocalStorage<string>("shorts:srt", "");
+  const [subtitleStyle, setSubtitleStyle] = useLocalStorage<SubtitleStyle>("shorts:subtitleStyle", "pop");
+  const [subtitlesEnabled, setSubtitlesEnabled] = useLocalStorage<boolean>("shorts:subtitlesEnabled", true);
+  const [whisperModel, setWhisperModel] = useLocalStorage<string>("shorts:whisperModel", "tiny");
+  const [longFormId, setLongFormId] = useLocalStorage<string | null>("shorts:longFormId", null);
+  const [generatedShorts, setGeneratedShorts] = useLocalStorage<GeneratedShort[]>("shorts:generated", []);
+
+  // Non-persistent state (ephemeral UI state)
   const [uploadLimitMb, setUploadLimitMb] = useState(2048);
   const [busy, setBusy] = useState(false);
   const [generatingSrt, setGeneratingSrt] = useState(false);
@@ -143,10 +149,14 @@ function ShortsWizard() {
   const [srtStage, setSrtStage] = useState("");
   const [srtMessage, setSrtMessage] = useState("");
   const [steps, setSteps] = useState<Step[]>([]);
-  const [generatedShorts, setGeneratedShorts] = useState<GeneratedShort[]>([]);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [longFormId, setLongFormId] = useState<string | null>(null);
   const [scheduling, setScheduling] = useState(false);
+
+  // Selected IDs as array for localStorage persistence
+  const [selectedArray, setSelectedArray] = useLocalStorage<string[]>("shorts:selected", []);
+  const selectedIds = new Set(selectedArray);
+  function setSelectedIds(ids: Set<string>) {
+    setSelectedArray(Array.from(ids));
+  }
   const bump = useDashboardStore((s) => s.bumpRefresh);
 
   useEffect(() => {
@@ -208,7 +218,11 @@ function ShortsWizard() {
                 setSrtContent(data.srtContent);
                 toast.success(`SRT generated — ${data.segmentCount} segments`);
               } else if (data.stage === "error") {
-                throw new Error(data.message);
+                // Show the full error message + stderr in the toast
+                const fullError = data.stderr
+                  ? `${data.message}\n\nDetails: ${data.stderr.slice(-300)}`
+                  : data.message;
+                throw new Error(fullError);
               }
             } catch (e: any) {
               if (e.message && !e.message.includes("JSON")) {
@@ -386,6 +400,33 @@ function ShortsWizard() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        {/* Progress saved indicator */}
+        {(longFormId || srtContent || generatedShorts.length > 0) && (
+          <div className="flex items-center gap-2 rounded-md border border-blue-500/40 bg-blue-500/5 p-2 text-xs text-muted-foreground">
+            <CheckCircleIcon className="size-3.5 text-blue-500" />
+            <span className="flex-1">
+              Progress saved — your video, SRT, and generated shorts will still be here if you reload the page.
+            </span>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 gap-1 text-xs"
+              onClick={() => {
+                if (confirm("Clear all saved progress? This cannot be undone.")) {
+                  setLongFormId(null);
+                  setUploaded(null);
+                  setTitle("");
+                  setSrtContent("");
+                  setGeneratedShorts([]);
+                  setSelectedArray([]);
+                }
+              }}
+            >
+              Start over
+            </Button>
+          </div>
+        )}
+
         {/* Step 1: Upload */}
         {!longFormId ? (
           <>

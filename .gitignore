@@ -1,0 +1,57 @@
+# Dependencies
+node_modules/
+
+# Next.js build output
+.next/
+out/
+
+# Production
+build/
+
+# Database (SQLite — local only)
+db/
+*.db
+*.db-journal
+
+# Environment variables (NEVER commit — contains API keys + OAuth tokens)
+.env
+.env.local
+.env.*.local
+
+# Dev logs
+dev.log
+server.log
+*.log
+
+# Agent tool outputs (internal — not for public repo)
+tool-results/
+
+# Downloaded screenshots / dev artifacts
+download/*.png
+download/*.jpg
+download/*.webm
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Prisma generated client (regenerated on install)
+prisma/migrations/
+
+# Misc
+.cache/
+coverage/
+*.pem
+
+# Sandbox environment (not part of the project)
+.zscripts/
+skills/
+examples/
+mini-services/
+next-env.d.ts

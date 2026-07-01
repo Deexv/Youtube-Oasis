@@ -1,0 +1,67 @@
+// YouTube Scheduler Prisma schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model LongFormVideo {
+  id            String   @id @default(cuid())
+  title         String
+  description   String?
+  filePath      String
+  duration      Int      @default(0) // seconds
+  thumbnailUrl  String?
+  // Scheduling window (HH:mm 24h)
+  windowStart   String   @default("09:00")
+  windowEnd     String   @default("17:00")
+  // Random time chosen within window, ISO string
+  scheduledTime String?
+  // Status: draft | scheduled | uploaded | failed
+  status        String   @default("draft")
+  youtubeId     String?
+  // Transcript used as input for shorts generation
+  transcript    String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  shorts Short[]
+}
+
+model Short {
+  id            String   @id @default(cuid())
+  // Hook/problem → rising-action → conflict → comeback → build tension → reveal
+  beat          String   @default("hook") // hook | rising | conflict | comeback | tension | reveal
+  title         String
+  header        String? // generated short header / caption
+  description   String?
+  filePath      String
+  thumbnailUrl  String?
+  // Source segment bounds (seconds in source long-form)
+  sourceStart   Int      @default(0)
+  sourceEnd     Int      @default(0)
+  duration      Int      @default(0)
+  scheduledTime String?
+  // Status: draft | generating | ready | scheduled | uploaded | failed
+  status        String   @default("draft")
+  youtubeId     String?
+  // Viral subtitle style: bounce, fade, pop, neon, kinetic
+  subtitleStyle String   @default("pop")
+  longFormId    String
+  longForm      LongFormVideo @relation(fields: [longFormId], references: [id], onDelete: Cascade)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([longFormId])
+  @@index([scheduledTime])
+}
+
+// Simple key-value settings store for dashboard config
+model Setting {
+  key   String @id
+  value String
+}

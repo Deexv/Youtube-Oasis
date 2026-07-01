@@ -141,6 +141,7 @@ export async function POST(req: Request) {
                     arc,
                     subtitleStyle: subtitleStyle as SubtitleStyle,
                     subtitlesEnabled,
+                    srtSegments,
                   });
 
                   const row = await db.short.create({

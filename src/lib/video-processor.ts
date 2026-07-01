@@ -20,6 +20,7 @@ import { mkdir, writeFile, stat, unlink } from "fs/promises";
 import { existsSync } from "fs";
 import { generateSRT, type SrtSegment } from "@/lib/srt";
 import type { BeatClip, NarrativeArc } from "@/lib/beats";
+import { BEAT_ORDER } from "@/lib/beats";
 
 // Re-export client-safe types/constants
 export { type SubtitleStyle, SUBTITLE_STYLES } from "@/lib/video-processor-shared";
@@ -391,6 +392,7 @@ export type ProcessArcInput = {
   arc: NarrativeArc;
   subtitleStyle: SubtitleStyle;
   subtitlesEnabled: boolean;
+  srtSegments: SrtSegment[];
 };
 
 export type ProcessArcResult = {
@@ -527,7 +529,7 @@ export async function processShortArc(input: ProcessArcInput): Promise<ProcessAr
   // Generate ASS subtitles with 4-5 word groups + white-background title
   if (subtitlesEnabled && subtitleStyle !== "none") {
     const assPath = outputPath.replace(/\.[^.]+$/, ".ass");
-    const assContent = generateArcASS(arc, clipTimings, subtitleStyle);
+    const assContent = generateArcASS(arc, clipTimings, subtitleStyle, input.srtSegments);
     await writeFile(assPath, assContent, "utf-8");
     const filterPath = isWin
       ? assPath.replace(/\\/g, "/").replace(/:/g, "\\:")
@@ -581,12 +583,14 @@ export async function processShortArc(input: ProcessArcInput): Promise<ProcessAr
 /**
  * Generate an ASS file for an arc.
  * - Title: white background, shown for first 5 seconds
- * - Subtitles: split into 4-5 word groups, each shown for ~1.5 seconds
+ * - Subtitles: use actual SRT text for each clip's time range, split into
+ *   4-5 word groups. Deduplicate overlapping text.
  */
 function generateArcASS(
   arc: NarrativeArc,
   clipTimings: Array<{ start: number; end: number; clip: BeatClip }>,
   style: SubtitleStyle,
+  srtSegments: SrtSegment[],
 ): string {
   if (style === "none") return "";
 
@@ -613,9 +617,37 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
   const titleEnd = Math.min(5, arc.totalDuration);
   ass += `Dialogue: 1,0:00:00.00,${assTime(titleEnd)},TitleStyle,,0,0,0,,${titleText}\n`;
 
-  // Subtitle lines — split each clip's text into 4-5 word groups
+  // Subtitle lines — for each clip, get the ACTUAL SRT text for that time range
+  // and split into 4-5 word groups. Skip clip.text (which might be "hook" etc.)
+  const seenText = new Set<string>(); // deduplicate
+
   for (const { start, end, clip } of clipTimings) {
-    const words = clip.text.split(/\s+/).filter(Boolean);
+    // Get SRT segments that overlap with this clip's source time range
+    const overlappingSegments = srtSegments.filter(
+      (seg) => seg.endSec > clip.sourceStart && seg.startSec < clip.sourceEnd,
+    );
+
+    // Collect all words from overlapping SRT segments
+    let allText = "";
+    for (const seg of overlappingSegments) {
+      allText += " " + seg.text;
+    }
+    allText = allText.trim();
+
+    // If no SRT text, try clip.text as fallback (but skip if it looks like a beat label)
+    if (!allText) {
+      if (clip.text && !BEAT_ORDER.includes(clip.beat as any) && !clip.text.startsWith("Segment")) {
+        allText = clip.text;
+      } else {
+        continue; // skip — no subtitle text for this clip
+      }
+    }
+
+    // Deduplicate — skip if we've already shown this exact text
+    if (seenText.has(allText)) continue;
+    seenText.add(allText);
+
+    const words = allText.split(/\s+/).filter(Boolean);
     if (words.length === 0) continue;
 
     // Group into 4-5 word chunks

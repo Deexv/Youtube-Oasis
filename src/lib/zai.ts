@@ -37,7 +37,7 @@ CRITICAL RULES FOR COHERENCE:
 - The 6 clips together must tell a COMPLETE story that makes sense on its own. A viewer who hasn't seen the original video should understand the narrative.
 - The clips must flow logically — each beat should naturally lead to the next. If a clip from timestamp 5:30 follows a clip from 1:20, the viewer should feel a smooth transition.
 - Pick clips where the speaker COMPLETES their thought within the clip. Don't end on a cliffhanger mid-sentence.
-- Each clip should be 3-8 seconds. The total short should be 20-45 seconds.
+- Each clip should be 3-8 seconds, but VARY the durations — don't make all clips the same length. Some can be 3s, some 6s, some 8s. The total short should be 20-45 seconds.
 - Find as many complete arcs as the video supports (1, 2, 3 — however many good stories the video contains). Quality over quantity. Do NOT create arcs that don't make sense.
 
 The transcript below includes timestamps in [HH:MM:SS,mmm --> HH:MM:SS,mmm] format. Each bracketed segment is one SRT entry. Use these exact timestamps as clip boundaries.
@@ -192,26 +192,34 @@ function normalizeArc(a: any, totalDurationSec: number): NarrativeArc | null {
 }
 
 function fallbackArcs(totalDurationSec: number): NarrativeArc[] {
-  // Create 1-3 simple arcs with 30-second total duration
+  // Create 1-3 arcs with VARYING clip durations (not all the same)
   const count = Math.min(3, Math.max(1, Math.floor(totalDurationSec / 120)));
   return Array.from({ length: count }, (_, i) => {
     const offset = i * Math.floor(totalDurationSec / count);
-    const clipDur = 5; // 5 seconds per clip × 6 clips = 30s total
+    // Vary clip durations: some 3s, some 5s, some 7s — so each short is different
+    const durations = [4, 5, 3, 6, 4, 5]; // total = 27s
+    let currentStart = offset;
     const clips: BeatClip[] = BEAT_ORDER.map((beat, j) => {
-      const start = Math.min(totalDurationSec - clipDur, offset + j * clipDur);
+      const clipDur = durations[j];
+      const start = Math.min(totalDurationSec - clipDur, currentStart);
+      const end = Math.min(totalDurationSec, start + clipDur);
+      currentStart = end;
+      // NO text — subtitles will be pulled from the actual SRT segments
+      // for this time range, not from the beat label
       return {
         beat,
         sourceStart: start,
-        sourceEnd: Math.min(totalDurationSec, start + clipDur),
-        text: `Segment ${j + 1} — ${BEAT_LABELS[beat]}`,
+        sourceEnd: end,
+        text: "", // empty — use SRT-based subtitles instead
       };
     });
+    const totalDuration = clips.reduce((sum, c) => sum + (c.sourceEnd - c.sourceStart), 0);
     return {
       id: `fallback-arc-${i}`,
       title: `Short ${i + 1}`,
       header: `Short ${i + 1}`,
       clips,
-      totalDuration: clipDur * BEAT_ORDER.length,
+      totalDuration,
     };
   });
 }

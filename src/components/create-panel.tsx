@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { Progress } from "@/components/ui/progress";
 import {
   Select,
   SelectContent,
@@ -137,6 +138,9 @@ function ShortsWizard() {
   const [uploadLimitMb, setUploadLimitMb] = useState(2048);
   const [busy, setBusy] = useState(false);
   const [generatingSrt, setGeneratingSrt] = useState(false);
+  const [srtProgress, setSrtProgress] = useState(0);
+  const [srtStage, setSrtStage] = useState("");
+  const [srtMessage, setSrtMessage] = useState("");
   const [steps, setSteps] = useState<Step[]>([]);
   const [generatedShorts, setGeneratedShorts] = useState<GeneratedShort[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -161,21 +165,67 @@ function ShortsWizard() {
       return;
     }
     setGeneratingSrt(true);
-    const t = toast.loading("Generating SRT via Whisper (CPU mode)… this may take a few minutes");
+    setSrtProgress(0);
+    setSrtStage("starting");
+    setSrtMessage("Starting…");
+
     try {
-      const r = await fetch("/api/srt/generate", {
+      const response = await fetch("/api/srt/generate-stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ longFormId, model: "base" }),
       });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d.error || "Failed");
-      setSrtContent(d.srtContent);
-      toast.success("SRT generated — timing will be accurate", { id: t });
+
+      if (!response.ok) {
+        const d = await response.json().catch(() => ({}));
+        throw new Error(d.error || `HTTP ${response.status}`);
+      }
+
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      if (!reader) throw new Error("No response stream");
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              setSrtProgress(data.progress);
+              setSrtStage(data.stage);
+              setSrtMessage(data.message);
+
+              if (data.stage === "done") {
+                setSrtContent(data.srtContent);
+                toast.success(`SRT generated — ${data.segmentCount} segments`);
+              } else if (data.stage === "error") {
+                throw new Error(data.message);
+              }
+            } catch (e: any) {
+              if (e.message && !e.message.includes("JSON")) {
+                toast.error(e.message);
+                setGeneratingSrt(false);
+                return;
+              }
+            }
+          }
+        }
+      }
     } catch (e: any) {
-      toast.error(e?.message || "SRT generation failed", { id: t });
+      toast.error(e?.message || "SRT generation failed");
     } finally {
       setGeneratingSrt(false);
+      setSrtProgress(0);
+      setSrtStage("");
+      setSrtMessage("");
     }
   }
 
@@ -439,6 +489,18 @@ function ShortsWizard() {
                   }}
                 />
               </div>
+              {generatingSrt && (
+                <div className="space-y-2 rounded-md border bg-muted/30 p-3">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="flex items-center gap-2 font-medium">
+                      <LoaderIcon className="size-4 animate-spin" />
+                      {srtMessage || "Working…"}
+                    </span>
+                    <span className="tabular-nums text-muted-foreground">{srtProgress}%</span>
+                  </div>
+                  <Progress value={srtProgress} className="h-2" />
+                </div>
+              )}
               <Textarea
                 rows={6}
                 value={srtContent}

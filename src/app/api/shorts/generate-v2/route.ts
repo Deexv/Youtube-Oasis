@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { detectMoments, generateShortHeader } from "@/lib/zai";
+import { detectMomentsWithStatus, generateShortHeader } from "@/lib/zai";
 import {
   processShort,
   getVideoDuration,
@@ -89,12 +89,21 @@ export async function POST(req: Request) {
       }
     }
 
-    // Step 1: Detect moments via LLM
-    const moments = await detectMoments(transcriptForLLM || longForm.transcript || "", duration || 600);
+    // Step 1: Detect moments via LLM (with status reporting)
+    const detection = await detectMomentsWithStatus(
+      transcriptForLLM || longForm.transcript || "",
+      duration || 600,
+    );
 
-    if (moments.length === 0) {
+    if (detection.error) {
+      console.warn(`[shorts/generate-v2] ${detection.error}`);
+    }
+
+    if (detection.moments.length === 0) {
       return NextResponse.json({ error: "No viable moments found in the video." }, { status: 422 });
     }
+
+    const moments = detection.moments;
 
     // Ensure shorts output directory exists
     const shortsDir = path.join(process.cwd(), "uploads", "shorts", longFormId);
@@ -102,36 +111,28 @@ export async function POST(req: Request) {
       await mkdir(shortsDir, { recursive: true });
     }
 
-    // Step 2: Process each moment into a real video file
-    const created: Array<{
-      id: string;
-      beat: string;
-      title: string;
-      header: string;
-      sourceStart: number;
-      sourceEnd: number;
-      duration: number;
-      fileSize: number;
-      subtitleStyle: string;
-      status: string;
-    }> = [];
+    // Step 2: Generate headers for ALL moments first (in parallel via LLM)
+    const headerPromises = moments.map((m) =>
+      generateShortHeader({
+        beat: m.beat,
+        title: m.title,
+        rationale: m.rationale,
+        sourceStart: m.sourceStart,
+        sourceEnd: m.sourceEnd,
+      }).catch(() => null),
+    );
+    const headers = await Promise.all(headerPromises);
 
-    let processed = 0;
-    const total = moments.length;
-
-    for (const m of moments) {
+    // Step 3: Process all moments into video files IN PARALLEL
+    // (FFmpeg is CPU-bound, but parallel processing still helps because each
+    // process has its own thread pool for encoding)
+    const processPromises = moments.map(async (m, i) => {
       try {
-        const header = await generateShortHeader({
-          beat: m.beat,
-          title: m.title,
-          rationale: m.rationale,
-          sourceStart: m.sourceStart,
-          sourceEnd: m.sourceEnd,
-        });
+        const header = headers[i] || m.title;
 
         const segSrt = extractSrtSegment(srtSegments, m.sourceStart, m.sourceEnd);
 
-        const shortFileName = `short-${Date.now()}-${created.length + 1}-${m.beat}.mp4`;
+        const shortFileName = `short-${Date.now()}-${i + 1}-${m.beat}.mp4`;
         const shortFilePath = path.join(shortsDir, shortFileName);
 
         const result = await processShort({
@@ -162,7 +163,7 @@ export async function POST(req: Request) {
           },
         });
 
-        created.push({
+        return {
           id: row.id,
           beat: row.beat,
           title: row.title,
@@ -172,20 +173,24 @@ export async function POST(req: Request) {
           duration: result.duration,
           fileSize: result.fileSize,
           subtitleStyle: row.subtitleStyle,
-          status: "ready",
-        });
-
-        processed++;
+          status: "ready" as const,
+        };
       } catch (e: any) {
         console.error(`Failed to process moment ${m.beat}: ${e?.message}`);
+        return null;
       }
-    }
+    });
+
+    const results = await Promise.all(processPromises);
+    const created = results.filter((r): r is NonNullable<typeof r> => r !== null);
 
     return NextResponse.json({
       created,
       totalFound: moments.length,
-      totalProcessed: processed,
-      totalFailed: total - processed,
+      totalProcessed: created.length,
+      totalFailed: moments.length - created.length,
+      llmProvider: detection.provider,
+      llmWarning: detection.error,
     });
   } catch (e: any) {
     console.error("Shorts generation error:", e);

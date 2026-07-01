@@ -74,21 +74,41 @@ export function getProviderStatus(): ProviderStatus {
   return { configured, rotate };
 }
 
+export type DetectionResult = {
+  moments: DetectedMoment[];
+  provider: ProviderName | "fallback";
+  error?: string;
+};
+
 /**
  * Detect best moments in a transcript using the configured LLM provider(s),
  * with the user's 6-beat pattern.
- * Falls back to a deterministic split if no provider is configured.
+ *
+ * Returns a DetectionResult that includes which provider was used and any
+ * error that caused a fallback. This lets the API surface to the UI whether
+ * the LLM actually analyzed the transcript or the fallback was used.
  */
-export async function detectMoments(
+export async function detectMomentsWithStatus(
   transcript: string,
   totalDurationSec: number,
-): Promise<DetectedMoment[]> {
+): Promise<DetectionResult> {
   const configured = getConfiguredProviders();
-  if (configured.length === 0 || !transcript || transcript.length < 50) {
-    return fallbackMoments(totalDurationSec);
+  if (configured.length === 0) {
+    return {
+      moments: fallbackMoments(totalDurationSec),
+      provider: "fallback",
+      error: "No LLM provider configured. Set at least one API key in .env (ZAI_API_KEY, GROQ_API_KEY, GEMINI_API_KEY, or ANTHROPIC_API_KEY).",
+    };
+  }
+  if (!transcript || transcript.length < 50) {
+    return {
+      moments: fallbackMoments(totalDurationSec),
+      provider: "fallback",
+      error: "Transcript too short for LLM analysis (< 50 chars).",
+    };
   }
   try {
-    const { content } = await chatJson({
+    const { content, provider } = await chatJson({
       system: SYSTEM_PROMPT,
       user: `Transcript:\n${transcript.slice(0, 12000)}\n\nTotal duration: ${totalDurationSec}s`,
       temperature: 0.6,
@@ -97,11 +117,36 @@ export async function detectMoments(
     const moments = (parsed.moments ?? [])
       .map((m: any) => normalizeMoment(m, totalDurationSec))
       .filter(Boolean) as DetectedMoment[];
-    if (moments.length === 0) return fallbackMoments(totalDurationSec);
-    return moments;
-  } catch {
-    return fallbackMoments(totalDurationSec);
+    if (moments.length === 0) {
+      return {
+        moments: fallbackMoments(totalDurationSec),
+        provider: "fallback",
+        error: `LLM (${provider}) returned 0 moments. Using fallback splitter.`,
+      };
+    }
+    return { moments, provider };
+  } catch (e: any) {
+    return {
+      moments: fallbackMoments(totalDurationSec),
+      provider: "fallback",
+      error: `LLM call failed: ${e?.message || "unknown error"}. Using fallback splitter.`,
+    };
   }
+}
+
+/**
+ * Backward-compatible version — returns just the moments array.
+ * Prefer detectMomentsWithStatus() to know if the LLM was actually used.
+ */
+export async function detectMoments(
+  transcript: string,
+  totalDurationSec: number,
+): Promise<DetectedMoment[]> {
+  const result = await detectMomentsWithStatus(transcript, totalDurationSec);
+  if (result.error) {
+    console.warn(`[detectMoments] ${result.error}`);
+  }
+  return result.moments;
 }
 
 /**

@@ -284,10 +284,13 @@ function ShortsWizard() {
       // Select all by default
       setSelectedIds(new Set(d.created.map((s: GeneratedShort) => s.id)));
 
-      toast.success(
-        `Created ${d.created.length} shorts (${d.totalFound} moments found, ${d.totalProcessed} processed)`,
-        { id: t },
-      );
+      // Show the LLM provider + any warning
+      const providerLabel = d.llmProvider === "fallback" ? "fallback splitter" : d.llmProvider;
+      const toastMsg = `Created ${d.created.length} shorts (${d.totalFound} moments found, ${d.totalProcessed} processed) · LLM: ${providerLabel}`;
+      if (d.llmWarning) {
+        toast.warning(d.llmWarning, { duration: 8000 });
+      }
+      toast.success(toastMsg, { id: t });
       setSteps([]);
       bump();
     } catch (e: any) {
@@ -502,11 +505,10 @@ function ShortsWizard() {
                 </div>
               )}
               <Textarea
-                rows={6}
                 value={srtContent}
                 onChange={(e) => setSrtContent(e.target.value)}
                 placeholder="Paste SRT content here, or click 'Auto-generate via Whisper' above…"
-                className="font-mono text-xs"
+                className="max-h-40 resize-y overflow-y-auto font-mono text-xs"
               />
               {srtContent && (
                 <p className="text-xs text-muted-foreground">

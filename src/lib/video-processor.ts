@@ -324,12 +324,12 @@ export async function processShort(input: ProcessShortInput): Promise<ProcessSho
     "-i", inputPath, // input
     "-vf", filterComplex,
     "-c:v", "libx264",
-    "-preset", "fast",
-    "-crf", "23",
+    "-preset", "ultrafast", // fastest encoding — shorts are short clips
+    "-crf", "28", // slightly lower quality but much faster
     "-c:a", "aac",
     "-b:a", "128k",
-    "-movflags", "+faststart", // web-friendly
-    "-t", String(duration), // ensure exact duration
+    "-movflags", "+faststart",
+    "-t", String(duration),
     outputPath,
   ];
 

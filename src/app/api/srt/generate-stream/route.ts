@@ -8,17 +8,15 @@ import { spawn } from "child_process";
  * POST /api/srt/generate-stream
  *
  * Streams progress updates via Server-Sent Events (SSE) while generating
- * an SRT file via faster-whisper. This lets the UI show a real progress
- * bar instead of a static spinner.
+ * an SRT file via faster-whisper.
  *
- * Body: { longFormId, model? }
- *
- * SSE events:
- *   data: {"stage":"loading_model","message":"Loading Whisper model 'base'…","progress":10}
- *   data: {"stage":"transcribing","message":"Transcribing audio…","progress":30}
- *   data: {"stage":"writing_srt","message":"Writing SRT file…","progress":80}
- *   data: {"stage":"done","message":"SRT generated","progress":100,"srtContent":"1\\n00:00:00,000 --> 00:00:03,000\\n..."}
- *   data: {"stage":"error","message":"...","progress":0}
+ * The Python script emits PROGRESS: messages on stderr that we parse:
+ *   PROGRESS:installing
+ *   PROGRESS:loading_model
+ *   PROGRESS:transcribing
+ *   PROGRESS:language:en:180.5
+ *   PROGRESS:transcribing:45:12:81.3/180.5s
+ *   PROGRESS:writing_srt:12
  */
 export async function POST(req: Request) {
   try {
@@ -79,24 +77,48 @@ export async function POST(req: Request) {
             const text = data.toString();
             stderrBuffer += text;
 
-            if (text.includes("Installing via pip")) {
-              send({ stage: "installing", message: "Installing faster-whisper (one-time)…", progress: 8 });
-            } else if (text.includes("faster-whisper installed successfully")) {
-              send({ stage: "loading_model", message: "faster-whisper installed. Loading model…", progress: 15 });
-            } else if (text.includes("Loading Whisper model")) {
-              send({ stage: "loading_model", message: `Loading Whisper model '${model}'…`, progress: 20 });
-            } else if (text.includes("Transcribing")) {
-              send({ stage: "transcribing", message: "Transcribing audio… this is the slow part", progress: 35 });
-            } else if (text.includes("Detected language")) {
-              const match = text.match(/Detected language: (\w+)/);
-              const lang = match ? match[1] : "unknown";
-              send({ stage: "transcribing", message: `Transcribing (${lang})…`, progress: 50 });
-            } else if (text.includes("Duration:")) {
-              const match = text.match(/Duration: ([\d.]+)s/);
-              const dur = match ? match[1] : "?";
-              send({ stage: "transcribing", message: `Transcribing ${dur}s of audio…`, progress: 55 });
-            } else if (text.includes("SRT written")) {
-              send({ stage: "writing_srt", message: "SRT file written, loading…", progress: 90 });
+            // Parse PROGRESS: messages from the Python script
+            const lines = text.split("\n");
+            for (const line of lines) {
+              const trimmed = line.trim();
+              if (trimmed.startsWith("PROGRESS:")) {
+                const parts = trimmed.slice("PROGRESS:".length).split(":");
+                const stage = parts[0];
+
+                if (stage === "installing") {
+                  send({ stage: "installing", message: "Installing faster-whisper (one-time)…", progress: 8 });
+                } else if (stage === "loading_model") {
+                  send({ stage: "loading_model", message: `Loading Whisper model '${model}'…`, progress: 15 });
+                } else if (stage === "transcribing" && parts.length === 1) {
+                  send({ stage: "transcribing", message: "Transcribing audio…", progress: 35 });
+                } else if (stage === "language") {
+                  const lang = parts[1] || "unknown";
+                  const duration = parseFloat(parts[2] || "0");
+                  const durMsg = duration > 0 ? ` (${Math.round(duration)}s of audio)` : "";
+                  send({
+                    stage: "transcribing",
+                    message: `Transcribing${durMsg} — language: ${lang}`,
+                    progress: 38,
+                  });
+                } else if (stage === "transcribing" && parts.length >= 3) {
+                  // PROGRESS:transcribing:45:12:81.3/180.5s
+                  const pct = parseInt(parts[1], 10);
+                  const segCount = parseInt(parts[2], 10);
+                  const position = parts[3] || "";
+                  send({
+                    stage: "transcribing",
+                    message: `Transcribing — ${segCount} segments found, at ${position}`,
+                    progress: pct,
+                  });
+                } else if (stage === "writing_srt") {
+                  const segCount = parseInt(parts[1] || "0", 10);
+                  send({
+                    stage: "writing_srt",
+                    message: `Writing SRT file (${segCount} segments)…`,
+                    progress: 90,
+                  });
+                }
+              }
             }
           });
 
@@ -122,12 +144,14 @@ export async function POST(req: Request) {
             data: { transcript: srtContent },
           });
 
+          const segmentCount = srtContent.split("\n\n").filter(Boolean).length;
+
           send({
             stage: "done",
-            message: "SRT generated successfully",
+            message: `SRT generated — ${segmentCount} segments`,
             progress: 100,
             srtContent,
-            segmentCount: srtContent.split("\n\n").filter(Boolean).length,
+            segmentCount,
           });
         } catch (e: any) {
           send({ stage: "error", message: e?.message || "Unknown error", progress: 0 });

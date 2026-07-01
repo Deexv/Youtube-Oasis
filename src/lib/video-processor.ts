@@ -293,13 +293,15 @@ export async function processShort(input: ProcessShortInput): Promise<ProcessSho
     const assPath = outputPath.replace(/\.[^.]+$/, ".ass");
     const assContent = generateASS(subtitleSegments, subtitleStyle, title);
     await writeFile(assPath, assContent, "utf-8");
-    // On Windows: convert backslashes to forward slashes (FFmpeg accepts both)
-    // and escape the colon in the drive letter (C: → C\:)
+    // Use the 'ass' filter instead of 'subtitles' — the 'ass' filter reads
+    // ASS files directly and doesn't need fontconfig (which fails on Windows
+    // with "Cannot load default config file").
+    // On Windows: convert backslashes to forward slashes + escape the colon
     const isWin = process.platform === "win32";
     const filterPath = isWin
       ? assPath.replace(/\\/g, "/").replace(/:/g, "\\:")
       : assPath.replace(/:/g, "\\:");
-    filters.push(`subtitles='${filterPath}'`);
+    filters.push(`ass='${filterPath}'`);
   }
 
   // 3. Add title header at the top
